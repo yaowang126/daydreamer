@@ -14,8 +14,9 @@ from .utils.selector import Selector
 r = socket.gethostbyname(socket.gethostname())
 
 
-def get_sampletable(*args,before_days):
-    tablename_list = args
+def get_sampletable(*tablenames,before_days):
+    tablename_list = tablenames
+    print(tablename_list)
     selector = Selector()
     #before_days 不超 240
     start_date = 20170103
@@ -27,29 +28,23 @@ def get_sampletable(*args,before_days):
     start_date_before = int(trade_cal[trade_cal['cal_date']==start_date].iloc[0].lag)
 
     selector = Selector()
-    for tablename in tablename_list:
-        assert tablename in ('daily','dailybasic','adj_factor','trade_cal'),'invalid tablename'
     stock_pool = ['600519.SH','601398.SH','601857.SH','600941.SH','601288.SH',
-                  '601988.SH','300750.SZ','601318.SH','600036.SH','601628.SH','600873.SH']
+                  '601988.SH','300750.SZ','601318.SH','600036.SH','600873.SH']
     
     sampletable_list=[]
     for tablename in tablename_list:
-        if tablename in ('daily','dailybasic','adj_factor'):
-            sampletable_list.append(getattr(selector,tablename)(start_date=start_date_before, 
-                                        end_date=end_date,stock_pool=stock_pool))
-        elif tablename in ('trade_cal'):
-            sampletable_list.append(getattr(selector,tablename)(start_date=start_date, 
-                                        end_date=end_date))
-    selector.close()
+        sampletable_list.append(getattr(selector,tablename)(start_date=start_date_before, 
+                                    end_date=end_date,stock_pool=stock_pool))
+
     return sampletable_list[0] if len(sampletable_list) == 1 else sampletable_list
 
 
 class Factorbuilder:
     
-    def __init__(self,start_date,end_date,tablename_list,before_days,period,stock_pool=None):
+    def __init__(self,*tablenames,start_date,end_date,before_days,period,stock_pool=None):
         self.start_date = start_date
         self.end_date = end_date
-        self.tablename_list = tablename_list
+        self.tablename_list = tablenames
         self.before_days = before_days
         self.period = period
         self.stock_pool = stock_pool
@@ -92,23 +87,27 @@ class Factorbuilder:
         return param_set
     
     
-    def factor_build(self,user_func,in_memory=True):
+    def factor_build(self,user_func,code_filter=['kechuangban','beijiaosuo'],in_memory=True):
         selector = Selector()
         if in_memory:
             for param in self._year_split_continous():
                 table_list=[]
                 for tablename in self.tablename_list:
-                    if tablename in ('daily','dailybasic','adj_factor'):
-                        table_list.append(getattr(selector,tablename)(start_date=param[0], 
-                                                    end_date=param[1],stock_pool=self.stock_pool))
-                    elif tablename in ('trade_cal'):
-                        table_list.append(getattr(selector,tablename)(start_date=param[0], 
-                                                    end_date=param[1]))
+                    table = getattr(selector,tablename)(start_date=param[0], 
+                                            end_date=param[1],stock_pool=self.stock_pool)
+                    if 'kechuangban' in code_filter:
+                        table = table[table['ts_code'].map(lambda x:x[:2]!='68')]
+                    if 'beijiaosuo' in code_filter:   
+                        table = table[table['ts_code'].map(lambda x:x[-2:]!='BJ')]
+                    table_list.append(table)
                 factor_df = user_func(*table_list)
                 factor_df = pd.merge(left = self.factor_date,right=factor_df,on=['factor_date'],how='inner')
                 self.factor_df = pd.concat([self.factor_df,factor_df.loc[:,['ts_code','factor_date','factor']]],ignore_index=True)
                 #如果返回的不是Df,或者三列不全，就报错
             return self.factor_df
+        else:
+            ...
+            #还没写，可能放到路径下的文件里
         selector.close()
         
         

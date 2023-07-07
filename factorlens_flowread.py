@@ -10,8 +10,9 @@ import matplotlib
 from matplotlib import pyplot as plt
 matplotlib.rcParams['font.sans-serif'] = ['SimHei']
 from collections import Iterable
+import datetime
 import warnings
-warnings.filterwarnings('ignore')
+warnings.filterwarnings('ignore')#warning from draw() 懒得管了
 
 class Factorlens:
     
@@ -23,8 +24,8 @@ class Factorlens:
         self.factor_name = factor_name
         #build for rt_df calculation
         self.factor_date_list = factor_df.factor_date.unique().tolist()
-        self.trade_cal = selector.trade_cal(start_date=min(self.factor_date_list), 
-                                                 end_date=max(self.factor_date_list)) 
+        self.trade_cal = selector.trade_cal(start_date=20000000, 
+                                                 end_date=30000000) 
         if isinstance(stock_pool,Iterable):
             self.stock_pool = stock_pool
         else:
@@ -34,9 +35,13 @@ class Factorlens:
                                  right=self.trade_cal,left_on='factor_date',
                                  right_on='cal_date',how='left')
         self.date_list = trade_date_df.nexttrade_date.unique().tolist()
+        
         if not last_date:
-            ...
-        self.date_list.append(last_date)
+            index_1 = self.trade_cal[self.trade_cal['nexttrade_date']==self.date_list[-2]].index
+            index_0 = self.trade_cal[self.trade_cal['nexttrade_date']==self.date_list[-1]].index
+            last_date = self.trade_cal.loc[2*index_0-index_1,'nexttrade_date'].iloc[0]
+            self.date_list.append(last_date)
+            
         # self.daily_df = self.selector.daily(date_list = self.date_list,stock_pool=self.stock_pool)
         # self.adj_factor_df = self.selector.adj_factor(date_list = self.date_list,stock_pool=self.stock_pool)
         # 延迟到backtest循环里再读表
@@ -155,13 +160,14 @@ class Factorlens:
         figure.subplots_adjust(hspace=0.5)
         
         for group_num in self.layerrt_df.layer.unique():
-            axes3.plot(self.layerrt_df.trade_date.unique().astype(int).astype(str),self.layerrt_df[self.layerrt_df['layer']==group_num]['cumnv'],label=f'group_{group_num}')
+            axes3.plot(self.layerrt_df.trade_date.unique().astype(int).astype(str),
+                       self.layerrt_df[self.layerrt_df['layer']==group_num]['cumnv'],label=f'group_{group_num}')
         axes3.set_xticklabels(self.layerrt_df.trade_date.unique().astype(int).astype(str),rotation=45,size=5)
         axes3.legend(loc=2,prop = {'size':5})
         
         plt.title(f'Factor:{self.factor_name}')
         if not path:
-            path = f'./output/{self.factor_name}.png'
+            path = f'./{self.factor_name}.png'
         plt.savefig(path,dpi=300)
         plt.show()
         return self.metrics_df,self.layerrt_df
