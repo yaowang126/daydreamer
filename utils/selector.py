@@ -19,7 +19,7 @@ class Selector:
     selector = Selector() #注册连接实例
     stock_pool = ['000001.SZ','000002.SZ'] #或者任何iterable的类型
     
-    #行情数据daily/dailybasic/adj_factor三张表用法如下,前2个参数起止日期必须传入
+    #行情数据daily/dailybasic/adj_factor/moneyflow四张表用法如下,前2个参数起止日期必须传入
     df0 = selector.daily(start_date = 20101201,end_date = 20111210,stock_pool)
     #或者传入日期列表
     df01 = selector.daily(datelist = [20101201,20101211,20101221],stock_pool)
@@ -94,28 +94,27 @@ class Selector:
                 select * from {table_name}_{year} where trade_date in ({",".join([str(item) for item in date_list])})
                 '''
                 if isinstance(stock_pool,Iterable):
-                    stock_pool_str = "("+ ",".join(["'"+item+"'" for item in stock_pool]) +")"
-                    query_select += f''' and ts_code in {stock_pool_str}'''
-                    
-                query_select += ';'
-                # df = self.sql.select(query_select)
-                # df_cum = pd.concat([df_cum,df], ignore_index=True, join='outer')
             
-            
-                query_select = f'''
-                   select * from {table_name}_{year} where (ts_code,trade_date) in (
-                   '''
-                for ts_code in stock_pool:
-                    for trade_date in date_list:
-                        query_select += f"('{ts_code}',{trade_date}),"
-                query_select = query_select[:-1] + ');'
+                    query_select = f'''
+                       select * from {table_name}_{year} where (ts_code,trade_date) in (
+                       '''
+                    for ts_code in stock_pool:
+                        for trade_date in date_list:
+                            query_select += f"('{ts_code}',{trade_date}),"
+                    query_select = query_select[:-1] + ');'
+                else:
+                     query_select = f'''
+                    select * from {table_name}_{year} where trade_date in ({",".join([str(item) for item in date_list])})
+                    '''
+
                 df = self.sql.select(query_select)
-                df_cum = pd.concat([df_cum,df], ignore_index=True, join='outer')  
+                df_cum = pd.concat([df_cum,df], ignore_index=True, join='outer')
+                    
                     
         return df_cum.sort_values(by='trade_date').reset_index(drop=True)
         
     def __getattr__(self,table_name):
-        if table_name in ('daily','dailybasic','adj_factor'):
+        if table_name in ('daily','dailybasic','adj_factor','moneyflow'):
             return partial(self._query_year_split,table_name)
         else:
             raise AttributeError(f'Selector has no attribute {table_name}')
@@ -158,7 +157,7 @@ class Selector:
         
         return df
     
-    def trade_cal(self,start_date,end_date):
+    def trade_cal(self,start_date,end_date,stock_pool=None):
         query = f'''
         select * from trade_cal where cal_date between {start_date} and {end_date};
         '''
