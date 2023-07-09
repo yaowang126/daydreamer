@@ -35,7 +35,7 @@ class Factorlens:
                                  right=self.trade_cal,left_on='factor_date',
                                  right_on='cal_date',how='left')
         self.date_list = trade_date_df.nexttrade_date.unique().tolist()
-        
+          
         if not last_date:
             index_1 = self.trade_cal[self.trade_cal['nexttrade_date']==self.date_list[-2]].index
             index_0 = self.trade_cal[self.trade_cal['nexttrade_date']==self.date_list[-1]].index
@@ -59,51 +59,33 @@ class Factorlens:
         self.layerrt_df = pd.DataFrame(columns=['trade_date','layer','rt','nv'])
         selector.close()
 
-            
-    def _cal_rt_buyonlysellable(self,trade_date,trade_date_next):
+#改成先分层算每个股的收益再扔到cal_rt里去筛选要不要下一期不存在的然后计算Layer_rt            
+    def _cal_layer_and_stockrt(self,trade_date,trade_date_next,layer_num=10):
+        buy_df = self.daily_df.loc[trade_date,['ts_code','close']]
+        sell_df = self.daily_df.loc[trade_date_next,['ts_code','close']]
+        buy_adj_df = self.adj_factor_df.loc[trade_date],['ts_code','adj_factor']
+        sell_adj_df = self.adj_factor_df.loc[trade_date_next,['ts_code','adj_factor']]
+        buy_df = pd.merge(left=buy_df,right=buy_adj_df,on='ts_code',how='inner')
+        sell_df = pd.merge(left=sell_df,right=sell_adj_df,on='ts_code',how='inner')
+        cal_df = pd.merge(left=buy_df,right=sell_df,on='ts_code',how='left',suffixes=('_0','_1'))
+        cal_df['close_1_adj'] = cal_df['close_1'] * cal_df['adj_factor_1'] / cal_df['adj_factor_0']
+        cal_df['nv'] = cal_df['close_1_adj'] / cal_df['close_0']
+        cal_df['rt'] = cal_df['nv'] - 1
+        cal_df['layer'] = pd.qcut(cal_df['factor'],q=layer_num,labels=False)
         
-        buy_df = pd.merge(left = self.daily_df.loc[trade_date,['ts_code','close']],
-                          right = self.daily_df.loc[trade_date_next,'ts_code'],
-                          on = 'ts_code',how = 'inner')
-        adj_df = pd.merge(left=self.adj_factor_df.loc[trade_date,:],
-                          right = buy_df.loc[:,'ts_code'],
-                          on='ts_code',how='inner')
-        adj_df = pd.merge(left=adj_df,
-                          right=self.adj_factor_df.loc[trade_date_next,['ts_code','adj_factor']],
-                          on='ts_code',
-                          how='inner',suffixes=('_0','_1'))
         
-        sell_df = pd.merge(left=self.daily_df.loc[trade_date_next,['ts_code','close']],
-                           right = adj_df,
-                           on='ts_code',how='inner')
-        
-        sell_df['adj_close'] = sell_df['close']*sell_df['adj_factor_1']/sell_df['adj_factor_0']
-        
-        rt_df = pd.merge(left=buy_df,
-                         right=sell_df,
-                         on='ts_code',how='inner',suffixes=('_0','_1'))
-        rt_df['nv'] = rt_df['adj_close']/rt_df['close_0']
-        rt_df['rt'] = rt_df['nv'] - 1
-        
-        rt_df = pd.merge(left = rt_df,right = self.factor_df.loc[trade_date,['ts_code','factor']],
-                         on = 'ts_code', how='left')
-        
-        rt_df['factor'] = rt_df['factor'].astype(float)
-        rt_df['rt'] = rt_df['rt'].astype(float)
-        rt_df['nv'] = rt_df['nv'].astype(float)
-        
-        return rt_df
+        return cal_df.loc[:['ts_code','layer','nv','rt']]
+    
 
     @staticmethod
     def _cal_ic(rt_df):
-        rt_df = rt_df[pd.notnull(rt_df['factor'])]
+        rt_df = rt_df[pd.notnull(rt_df['factor'])]#np.nan算corr是略过还是当0？
         ic = rt_df['rt'].corr(rt_df['factor'],method="pearson")
         rankic = rt_df['rt'].corr(rt_df['factor'],method="spearman")
         return ic,rankic
     
     @staticmethod
-    def _cal_layerrt(rt_df,layer_num,keep_null):   
-        rt_df['layer'] = pd.qcut(rt_df['factor'],q=layer_num,labels=False)
+    def _cal_layerrt(rt_df,keep_null):   
         if keep_null:
             rt_df['layer'] = rt_df['layer'].fillna(-1)
         else:
@@ -111,28 +93,31 @@ class Factorlens:
         layer_rt = rt_df.groupby(by='layer').agg({'rt':'mean','nv':'mean'}).reset_index()
         return layer_rt
     
-    def backtest(self,method='buyonlysellable',layer_num=10,keep_null=True,in_memory=True,step_size=12):
-        assert method in ('buyonlysellable','bieshouli'),'invalid method' #加上憋手里的回测方式
+    def backtest(self,method='buyonlysellable',layer_num=10,keep_null=True,step_size=12):    
+        assert method in ('buyonlysellable','holdinlayer'),'invalid method' #加上憋手里的回测方式
         selector = Selector()
-        if in_memory:
-            for i in range(0,len(self.date_list),step_size):
-                date_list = self.date_list[i:i+step_size]
-                self.daily_df = selector.daily(date_list = date_list,stock_pool=self.stock_pool)
-                self.adj_factor_df = selector.adj_factor(date_list = date_list,stock_pool=self.stock_pool)
-                self.daily_df.set_index('trade_date',inplace=True)
-                self.adj_factor_df.set_index('trade_date',inplace=True)
+        for i in range(0,len(self.date_list),step_size):
+            date_list = self.date_list[i:i+step_size]
+            self.daily_df = selector.daily(date_list = date_list,stock_pool=self.stock_pool)
+            self.adj_factor_df = selector.adj_factor(date_list = date_list,stock_pool=self.stock_pool)
+            self.daily_df.set_index('trade_date',inplace=True)
+            self.adj_factor_df.set_index('trade_date',inplace=True)
+            #以上mysql to memory为读取流
+            for i in range(len(date_list)-1):             
+                trade_date = date_list[i]
+                trade_date_next = date_list[i+1]
+                cal_df = self._cal_layer_and_stockrt(trade_date,trade_date_next,layer_num)
                 if method == 'buyonlysellable':
-                    for i in range(len(date_list)-1):             
-                        trade_date = date_list[i]
-                        trade_date_next = date_list[i+1]
-                        rt_df = self._cal_rt_buyonlysellable(trade_date,trade_date_next)
-                        ic,rankic = self._cal_ic(rt_df)
-                        layerrt = self._cal_layerrt(rt_df,layer_num,keep_null)
-                        layerrt['trade_date'] = trade_date_next
-                        self.metrics_df = self.metrics_df.append({'trade_date':trade_date_next,'ic':ic,'rankic':rankic},ignore_index=True)
-                        self.layerrt_df = self.layerrt_df.append(layerrt,ignore_index=True)
-        else:
-            ...#本地 or 数据库临时存储?
+                    rt_df = cal_df[pd.notnull(cal_df['nv'])]
+                    ic,rankic = self._cal_ic(rt_df)
+                    layerrt = self._cal_layerrt(rt_df,keep_null)
+                    layerrt['trade_date'] = trade_date_next
+                    self.metrics_df = self.metrics_df.append({'trade_date':trade_date_next,'ic':ic,'rankic':rankic},ignore_index=True)
+                    self.layerrt_df = self.layerrt_df.append(layerrt,ignore_index=True)
+                elif method == 'holdinlayer':
+                    ...
+                    
+
         
         selector.close()
         
