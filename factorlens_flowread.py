@@ -102,7 +102,7 @@ class Factorlens:
         return ic,rankic
     
     @staticmethod
-    def _cal_layerrt(rt_df,layer_num,keep_null,cal_layer_func=None):
+    def _cal_layerrt(rt_df,layer_num,keep_null,cal_layer_func):
         if cal_layer_func:#不是lambda x的函数，是直接传入一个seriresz，再自己返回一个series，操作空间大
             layer_series = cal_layer_func(rt_df['factor'])
             if len(layer_series) == len(rt_df):
@@ -134,7 +134,7 @@ class Factorlens:
                         trade_date_next = date_list[i+1]
                         rt_df = self._cal_rt_buyonlysellable(trade_date,trade_date_next)
                         ic,rankic = self._cal_ic(rt_df)
-                        layerrt = self._cal_layerrt(rt_df,layer_num,keep_null)
+                        layerrt = self._cal_layerrt(rt_df,layer_num,keep_null,cal_layer_func=None)
                         layerrt['trade_date'] = trade_date_next
                         self.metrics_df = self.metrics_df.append({'trade_date':trade_date_next,'ic':ic,'rankic':rankic},ignore_index=True)
                         self.layerrt_df = self.layerrt_df.append(layerrt,ignore_index=True)
