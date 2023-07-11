@@ -16,7 +16,6 @@ r = socket.gethostbyname(socket.gethostname())
 
 def get_sampletable(*tablenames,before_days):
     tablename_list = tablenames
-    print(tablename_list)
     selector = Selector()
     #before_days 不超 240
     start_date = 20170103
@@ -81,7 +80,8 @@ class Factorbuilder:
         start_date_first = int(self.trade_cal[self.trade_cal['cal_date']==self.start_date].iloc[0].cal_or_nexttrade_date_lag)
         while year <= min(end_year,this_year):
             start_date_other = int(self.trade_cal[self.trade_cal['cal_date']==int(year*10000+101)].iloc[0].cal_or_nexttrade_date_lag)
-            param_set.append([start_date_first if year == start_year else start_date_other,
+            param_set.append([self.start_date if year == start_year else int(year*10000+101),
+                              start_date_first if year == start_year else start_date_other,
                               self.end_date if year == end_year else int(year*10000+1231)])
             year += 1
         return param_set
@@ -93,8 +93,8 @@ class Factorbuilder:
             for param in self._year_split_continous():
                 table_list=[]
                 for tablename in self.tablename_list:
-                    table = getattr(selector,tablename)(start_date=param[0], 
-                                            end_date=param[1],stock_pool=self.stock_pool)
+                    table = getattr(selector,tablename)(start_date=param[1], 
+                                            end_date=param[2],stock_pool=self.stock_pool)
                     if 'kechuangban' in code_filter:
                         table = table[table['ts_code'].map(lambda x:x[:2]!='68')]
                     if 'beijiaosuo' in code_filter:   
@@ -102,6 +102,7 @@ class Factorbuilder:
                     table_list.append(table)
                 factor_df = user_func(*table_list)
                 factor_df = pd.merge(left = self.factor_date,right=factor_df,on=['factor_date'],how='inner')
+                factor_df = factor_df[factor_df['factor_date']>=param[0]]
                 self.factor_df = pd.concat([self.factor_df,factor_df.loc[:,['ts_code','factor_date','factor']]],ignore_index=True)
                 #如果返回的不是Df,或者三列不全，就报错
             return self.factor_df

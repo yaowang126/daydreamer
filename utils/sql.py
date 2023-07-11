@@ -7,6 +7,8 @@ Created on Sat Jun 10 15:15:04 2023
 import pymysql
 import pandas as pd
 from pymysql.constants import CLIENT
+import os
+import json
 
 class SQL():
     
@@ -33,3 +35,11 @@ class SQL():
     def close(self):
         self.connect.close()
         
+
+if __name__ == '__main__':
+    with open(f'{os.path.dirname(__file__)}/dbcfg.conf', 'r', encoding='utf-8') as f:
+                dbcfg = json.load(f)
+    tushare_cfg = dbcfg['tushare']
+    sql = SQL(tushare_cfg['DBaddr'],int(tushare_cfg['DBport']),tushare_cfg['DBusername'],
+                   tushare_cfg['DBpw'],tushare_cfg['DBname'])
+    df = sql.select('select * from daily_2010 limit 10;')
