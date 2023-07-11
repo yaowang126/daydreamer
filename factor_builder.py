@@ -16,7 +16,6 @@ r = socket.gethostbyname(socket.gethostname())
 
 def get_sampletable(*tablenames,before_days):
     tablename_list = tablenames
-    print(tablename_list)
     selector = Selector()
     #before_days 不超 240
     start_date = 20170103
