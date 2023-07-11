@@ -118,7 +118,7 @@ class Factorlens:
         layer_rt = rt_df.groupby(by='layer').agg({'rt':'mean','nv':'mean'}).reset_index()
         return layer_rt
     
-    def backtest(self,method='buyonlysellable',layer_num=10,keep_null=True,in_memory=True,step_size=12):
+    def backtest(self,method='buyonlysellable',layer_num=10,keep_null=True,cal_layer_func=None,in_memory=True,step_size=12):
         assert method in ('buyonlysellable','bieshouli'),'invalid method' #加上憋手里的回测方式
         selector = Selector()
         if in_memory:
@@ -134,7 +134,7 @@ class Factorlens:
                         trade_date_next = date_list[i+1]
                         rt_df = self._cal_rt_buyonlysellable(trade_date,trade_date_next)
                         ic,rankic = self._cal_ic(rt_df)
-                        layerrt = self._cal_layerrt(rt_df,layer_num,keep_null,cal_layer_func=None)
+                        layerrt = self._cal_layerrt(rt_df,layer_num,keep_null,cal_layer_func)
                         layerrt['trade_date'] = trade_date_next
                         self.metrics_df = self.metrics_df.append({'trade_date':trade_date_next,'ic':ic,'rankic':rankic},ignore_index=True)
                         self.layerrt_df = self.layerrt_df.append(layerrt,ignore_index=True)
