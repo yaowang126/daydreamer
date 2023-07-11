@@ -34,7 +34,7 @@ def get_sampletable(*tablenames,before_days):
     for tablename in tablename_list:
         sampletable_list.append(getattr(selector,tablename)(start_date=start_date_before, 
                                     end_date=end_date,stock_pool=stock_pool))
-
+    
     return sampletable_list[0] if len(sampletable_list) == 1 else sampletable_list
 
 

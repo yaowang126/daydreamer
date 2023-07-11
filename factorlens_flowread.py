@@ -102,8 +102,15 @@ class Factorlens:
         return ic,rankic
     
     @staticmethod
-    def _cal_layerrt(rt_df,layer_num,keep_null):   
-        rt_df['layer'] = pd.qcut(rt_df['factor'],q=layer_num,labels=False)
+    def _cal_layerrt(rt_df,layer_num,keep_null,cal_layer_func=None):
+        if cal_layer_func:#不是lambda x的函数，是直接传入一个seriresz，再自己返回一个series，操作空间大
+            layer_series = cal_layer_func(rt_df['factor'])
+            if len(layer_series) == len(rt_df):
+                rt_df['layer'] = cal_layer_func(rt_df['factor'])
+            else:
+                raise Exception('length of user defined layer series does not match length of factor dataframe')
+        else:
+            rt_df['layer'] = pd.qcut(rt_df['factor'],q=layer_num,labels=False)
         if keep_null:
             rt_df['layer'] = rt_df['layer'].fillna(-1)
         else:
