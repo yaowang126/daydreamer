@@ -154,5 +154,4 @@ class Factorlens:
         if not path:
             path = f'./{self.factor_name}.png'
         plt.savefig(path,dpi=300)
-        plt.show()
         return self.metrics_df,self.layerrt_df
