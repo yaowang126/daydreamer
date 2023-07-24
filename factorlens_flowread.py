@@ -21,6 +21,7 @@ class Factorlens:
             assert col in factor_df.columns,f'missing column {col} in factor_df'
         selector = Selector()
         factor_df = factor_df.reset_index(drop=True)
+        factor_df = factor_df.sort_values(by='factor_date')
         self.factor_name = factor_name
         #build for rt_df calculation
         self.factor_date_list = factor_df.factor_date.unique().tolist()
@@ -45,9 +46,9 @@ class Factorlens:
         # self.daily_df = self.selector.daily(date_list = self.date_list,stock_pool=self.stock_pool)
         # self.adj_factor_df = self.selector.adj_factor(date_list = self.date_list,stock_pool=self.stock_pool)
         # 延迟到backtest循环里再读表
-        self.factor_df = pd.merge(left=factor_df,right=trade_date_df.loc[:,['factor_date','nexttrade_date']],
+        self.factor_df = pd.merge(left=factor_df,
+                         right=trade_date_df.loc[:,['factor_date','nexttrade_date']],
                          on='factor_date',how='left')
-            
         # self.daily_df.set_index('trade_date',inplace=True)
         # self.adj_factor_df.set_index('trade_date',inplace=True)
         # 延迟到backtest循环里再读表
@@ -58,6 +59,8 @@ class Factorlens:
         self.metrics_df = pd.DataFrame(columns=['trade_date','ic','rankic'])
         self.layerrt_df = pd.DataFrame(columns=['trade_date','layer','rt','nv'])
         selector.close()
+        print(len(self.factor_date_list))
+        print(len(self.date_list))
 
             
     def _cal_rt_buyonlysellable(self,trade_date,trade_date_next):
@@ -84,6 +87,8 @@ class Factorlens:
                          on='ts_code',how='inner',suffixes=('_0','_1'))
         rt_df['nv'] = rt_df['adj_close']/rt_df['close_0']
         rt_df['rt'] = rt_df['nv'] - 1
+        
+        
         
         rt_df = pd.merge(left = rt_df,right = self.factor_df.loc[trade_date,['ts_code','factor']],
                          on = 'ts_code', how='left')
@@ -122,8 +127,8 @@ class Factorlens:
         assert method in ('buyonlysellable','bieshouli'),'invalid method' #加上憋手里的回测方式
         selector = Selector()
         if in_memory:
-            for i in range(0,len(self.date_list),step_size):
-                date_list = self.date_list[i:i+step_size]
+            for i in range(0,len(self.date_list)-1,step_size):
+                date_list = self.date_list[i:i+step_size+1]#需要多加上一期，用来算收益率
                 self.daily_df = selector.daily(date_list = date_list,stock_pool=self.stock_pool)
                 self.adj_factor_df = selector.adj_factor(date_list = date_list,stock_pool=self.stock_pool)
                 self.daily_df.set_index('trade_date',inplace=True)
@@ -136,6 +141,7 @@ class Factorlens:
                         ic,rankic = self._cal_ic(rt_df)
                         layerrt = self._cal_layerrt(rt_df,layer_num,keep_null,cal_layer_func)
                         layerrt['trade_date'] = trade_date_next
+                        print(trade_date_next)
                         self.metrics_df = self.metrics_df.append({'trade_date':trade_date_next,'ic':ic,'rankic':rankic},ignore_index=True)
                         self.layerrt_df = self.layerrt_df.append(layerrt,ignore_index=True)
         else:
@@ -168,7 +174,7 @@ class Factorlens:
         
         for group_num in self.layerrt_df.layer.unique():
             axes3.plot(self.layerrt_df.trade_date.unique().astype(int).astype(str),
-                       self.layerrt_df[self.layerrt_df['layer']==group_num]['cumnv'],label=f'group_{group_num}')
+                        self.layerrt_df[self.layerrt_df['layer']==group_num]['cumnv'],label=f'group_{group_num}')
         axes3.set_xticklabels(self.layerrt_df.trade_date.unique().astype(int).astype(str),rotation=45,size=5)
         axes3.legend(loc=2,prop = {'size':5})
         
