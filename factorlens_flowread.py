@@ -38,20 +38,16 @@ class Factorlens:
         self.date_list = trade_date_df.nexttrade_date.unique().tolist()
         
         if not last_date:
-            index_1 = self.trade_cal[self.trade_cal['nexttrade_date']==self.date_list[-2]].index
-            index_0 = self.trade_cal[self.trade_cal['nexttrade_date']==self.date_list[-1]].index
-            last_date = self.trade_cal.loc[2*index_0-index_1,'nexttrade_date'].iloc[0]
+            trade_cal_open = self.trade_cal[self.trade_cal['is_open']==1].reset_index()
+            index_1 = trade_cal_open[trade_cal_open['nexttrade_date']==self.date_list[-2]].index
+            index_0 = trade_cal_open[trade_cal_open['nexttrade_date']==self.date_list[-1]].index
+            last_date = trade_cal_open.loc[2*index_0-index_1,'nexttrade_date'].iloc[0]
             self.date_list.append(last_date)
             
-        # self.daily_df = self.selector.daily(date_list = self.date_list,stock_pool=self.stock_pool)
-        # self.adj_factor_df = self.selector.adj_factor(date_list = self.date_list,stock_pool=self.stock_pool)
-        # 延迟到backtest循环里再读表
         self.factor_df = pd.merge(left=factor_df,
                          right=trade_date_df.loc[:,['factor_date','nexttrade_date']],
                          on='factor_date',how='left')
-        # self.daily_df.set_index('trade_date',inplace=True)
-        # self.adj_factor_df.set_index('trade_date',inplace=True)
-        # 延迟到backtest循环里再读表
+        
         self.factor_df.set_index('nexttrade_date',inplace=True)
         
         
@@ -59,8 +55,7 @@ class Factorlens:
         self.metrics_df = pd.DataFrame(columns=['trade_date','ic','rankic'])
         self.layerrt_df = pd.DataFrame(columns=['trade_date','layer','rt','nv'])
         selector.close()
-        print(len(self.factor_date_list))
-        print(len(self.date_list))
+
 
             
     def _cal_rt_buyonlysellable(self,trade_date,trade_date_next):
@@ -112,6 +107,7 @@ class Factorlens:
             layer_series = cal_layer_func(rt_df['factor'])
             if len(layer_series) == len(rt_df):
                 rt_df['layer'] = cal_layer_func(rt_df['factor'])
+                print(rt_df)
             else:
                 raise Exception('length of user defined layer series does not match length of factor dataframe')
         else:
@@ -119,8 +115,9 @@ class Factorlens:
         if keep_null:
             rt_df['layer'] = rt_df['layer'].fillna(-1)
         else:
-            rt_df = rt_df[pd.notnull(rt_df['factor'])]
+            rt_df = rt_df[pd.notnull(rt_df['layer'])]
         layer_rt = rt_df.groupby(by='layer').agg({'rt':'mean','nv':'mean'}).reset_index()
+        print(layer_rt)
         return layer_rt
     
     def backtest(self,method='buyonlysellable',layer_num=10,keep_null=True,cal_layer_func=None,in_memory=True,step_size=12):
@@ -137,11 +134,11 @@ class Factorlens:
                     for i in range(len(date_list)-1):             
                         trade_date = date_list[i]
                         trade_date_next = date_list[i+1]
+                        print(trade_date_next)
                         rt_df = self._cal_rt_buyonlysellable(trade_date,trade_date_next)
                         ic,rankic = self._cal_ic(rt_df)
                         layerrt = self._cal_layerrt(rt_df,layer_num,keep_null,cal_layer_func)
                         layerrt['trade_date'] = trade_date_next
-                        print(trade_date_next)
                         self.metrics_df = self.metrics_df.append({'trade_date':trade_date_next,'ic':ic,'rankic':rankic},ignore_index=True)
                         self.layerrt_df = self.layerrt_df.append(layerrt,ignore_index=True)
         else:
