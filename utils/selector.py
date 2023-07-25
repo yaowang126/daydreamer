@@ -36,10 +36,14 @@ class Selector:
             with open(f'{os.path.dirname(__file__)}/dbcfg.conf', 'r', encoding='utf-8') as f:
                 dbcfg = json.load(f)
                 tushare_cfg = dbcfg['tushare']
+                tushare_warmin_cfg = dbcfg['tushare_warmin']
             self.sql = SQL(tushare_cfg['DBaddr'],int(tushare_cfg['DBport']),tushare_cfg['DBusername'],
                            tushare_cfg['DBpw'],tushare_cfg['DBname'])
+            self.sqlwarmin = SQL(tushare_warmin_cfg['DBaddr'],int(tushare_warmin_cfg['DBport']),tushare_warmin_cfg['DBusername'],
+                           tushare_warmin_cfg['DBpw'],tushare_warmin_cfg['DBname'])
         else:
             ...
+    
     
     @staticmethod
     def _year_split_continous(start_date,end_date):          
@@ -163,6 +167,23 @@ class Selector:
         '''
         df = self.sql.select(query)
         return df
+    
+    def warmin(self,start_date=None,end_date=None,date_list=None):
+        assert isinstance(start_date,int) and isinstance(end_date,int) \
+    or isinstance(date_list,Iterable),'起始日期和截止日期必须传入或者转入日期列表'
+        if isinstance(start_date,int) and isinstance(end_date,int):
+            df_tables = self.trade_cal(20000000,30000000)
+            df_tables = df_tables[df_tables['is_open']==1]
+            date_list = df_tables[(df_tables['cal_date']>=start_date)&(df_tables['cal_date']<=end_date)].cal_date.to_list()
+        df_cum = pd.DataFrame()
+        
+        for tradedate in date_list:
+            query_select = f'''
+            select * from war_{tradedate}
+            '''
+            df = self.sqlwarmin.select(query_select)
+            df_cum = pd.concat([df_cum,df], ignore_index=True, join='outer')
+        return df_cum
     
     def close(self):
         self.sql.close()
