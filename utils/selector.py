@@ -185,7 +185,6 @@ class Selector:
             df_cum = pd.concat([df_cum,df], ignore_index=True, join='outer')
         return df_cum
     
-<<<<<<< HEAD
     def stock_basic(self,stock_pool=None):
         query_select = '''
         select * from stock_basic
@@ -210,8 +209,7 @@ class Selector:
         df = self.sql.select(query_select)
         return df
     
-=======
->>>>>>> main
+
     def close(self):
         self.sql.close()
         self.sqlwarmin.close()
