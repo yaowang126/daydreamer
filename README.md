@@ -1,2 +1,2 @@
-# factorlens
-## factorlens with tushare data
+# Daydreamer
+## factor analysis and strategy backtest tool with tushare data
