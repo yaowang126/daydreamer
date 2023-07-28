@@ -187,8 +187,8 @@ class Factorlens:
                           right = self.stock_delist.query(f'{trade_date}<=delist_date<={trade_date_next}')[['ts_code','delist_date']],
                           how='left',on='ts_code')
         cal_df['sell_price_adj'] = cal_df.apply(lambda x:x.sell_price_adj if pd.isnull(x.delist_date) else 0.0,axis=1)
-        if len(cal_df[cal_df['sell_price_adj']==0]) > 0:
-            print('delist-----------------',cal_df)    
+        # if len(cal_df[cal_df['sell_price_adj']==0]) > 0:
+        #     print('delist-----------------',cal_df)    
         cal_df['nv'] = cal_df['sell_price_adj']/cal_df['buy_price']
         cal_df['rt'] = cal_df['nv'] - 1
         self.cal_df = cal_df
@@ -234,7 +234,6 @@ class Factorlens:
             for i in range(len(date_list)-1):             
                 trade_date = date_list[i]
                 trade_date_next = date_list[i+1]
-                print(trade_date)
                 if method == 'buyonlysellable':
                     ...
                     # rt_df = cal_df[pd.notnull(cal_df['nv'])]#筛选出下一期也在里边的
