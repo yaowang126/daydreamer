@@ -5,118 +5,250 @@ Created on Fri Jun 30 09:29:42 2023
 @author: YW
 """
 import pandas as pd
+import numpy as np
 from .utils.selector import Selector
 import matplotlib
 from matplotlib import pyplot as plt
 matplotlib.rcParams['font.sans-serif'] = ['SimHei']
 from collections import Iterable
+from functools import partial
 import datetime
 import warnings
 warnings.filterwarnings('ignore')#warning from draw() 懒得管了
 
 class Factorlens:
     
-    def __init__(self,factor_name,factor_df,stock_pool=None,last_date=None):
+    def __init__(self,factor_name,factor_df,stock_pool=None,newlist_delay=180,
+                 ignore_level ='*ST',last_date=None):
         for col in ('ts_code','factor_date','factor'):
             assert col in factor_df.columns,f'missing column {col} in factor_df'
         selector = Selector()
+        if isinstance(stock_pool,Iterable):
+            self.stock_pool = stock_pool
+        else:
+            self.stock_pool = factor_df['ts_code'].unique().tolist()
+            
+        stock_basic = selector.stock_basic(stock_pool=self.stock_pool)
+        
+        self.stock_delist = stock_basic[stock_basic['list_status'] =='D'][['ts_code','delist_date']]
+        factor_df = factor_df.reset_index(drop=True)
+        factor_df = factor_df.sort_values(by='factor_date')
         factor_df = factor_df.reset_index(drop=True)
         self.factor_name = factor_name
         #build for rt_df calculation
         self.factor_date_list = factor_df.factor_date.unique().tolist()
         self.trade_cal = selector.trade_cal(start_date=20000000, 
-                                                 end_date=30000000) 
-        if isinstance(stock_pool,Iterable):
-            self.stock_pool = stock_pool
-        else:
-            self.stock_pool = factor_df['ts_code'].unique().tolist()
+                                                 end_date=30000000)
+ 
+        #此部分为用所有因子日的下一个交易日算出所有调仓日
 
         trade_date_df = pd.merge(left=pd.DataFrame({'factor_date':self.factor_date_list}),
                                  right=self.trade_cal,left_on='factor_date',
                                  right_on='cal_date',how='left')
         self.date_list = trade_date_df.nexttrade_date.unique().tolist()
-          
-        if not last_date:
-            index_1 = self.trade_cal[self.trade_cal['nexttrade_date']==self.date_list[-2]].index
-            index_0 = self.trade_cal[self.trade_cal['nexttrade_date']==self.date_list[-1]].index
-            last_date = self.trade_cal.loc[2*index_0-index_1,'nexttrade_date'].iloc[0]
-            self.date_list.append(last_date)
+        
+        #此为加上新股可被交易的日期
+        if newlist_delay:
+            def cal_newlist_startdate(newlist_date,newlist_delay):
+                newlist_datetime = datetime.datetime.strptime(str(newlist_date), '%Y%m%d')
+                newlist_startdate = newlist_datetime + datetime.timedelta(days=newlist_delay)
+                newlist_startdate = int(newlist_startdate.strftime('%Y%m%d'))
+                return newlist_startdate
             
-        # self.daily_df = self.selector.daily(date_list = self.date_list,stock_pool=self.stock_pool)
-        # self.adj_factor_df = self.selector.adj_factor(date_list = self.date_list,stock_pool=self.stock_pool)
-        # 延迟到backtest循环里再读表
+            stock_basic['newlist_startdate'] = stock_basic['list_date'].map(lambda x:cal_newlist_startdate(x,newlist_delay))
+            stock_basic['newlist_startdate'] = stock_basic['newlist_startdate'].astype(int)
+            self.stock_list = stock_basic[['ts_code','newlist_startdate']] 
+        else:
+            self.stock_list = pd.DataFrame()
+            
+        #此为定义ST筛选函数
+        assert ignore_level in ('ST','*ST','退'),'invalid ignore_level'
+        def ingore_filter(ignore_level,stock_name):
+            if ignore_level == 'ST':
+                if 'ST' in stock_name or '退' in stock_name:
+                    return False
+                else:
+                    return True
+            elif ignore_level == '*ST':
+                if '*ST' in stock_name or '退' in stock_name:
+                    return False
+                else:
+                    return True
+            elif ignore_level == '退':
+                if  '退' in stock_name:
+                    return False
+                else:
+                    return True
+                
+        self.ignore_filter = partial(ingore_filter,ignore_level)
+        self.namechange =  selector.namechange(stock_pool=self.stock_pool)
+        #把名字结束日空值填成今天
+        self.namechange['end_date'] = self.namechange['end_date'].fillna(datetime.datetime.now().strftime('%Y%m%d'))
+        self.namechange['end_date'] = self.namechange['end_date'].astype(int)
+        #此部分为自动加上最后一个调仓日
+        if not last_date:
+            
+            trade_cal_open = self.trade_cal[self.trade_cal['is_open']==1].reset_index()
+            index_1 = trade_cal_open[trade_cal_open['nexttrade_date']==self.date_list[-2]].index
+            index_0 = trade_cal_open[trade_cal_open['nexttrade_date']==self.date_list[-1]].index
+            last_date = trade_cal_open.loc[2*index_0-index_1,'nexttrade_date'].iloc[0]
+            self.date_list.append(last_date)
+        
+        #此为给factor_df添加一列调仓日
         self.factor_df = pd.merge(left=factor_df,right=trade_date_df.loc[:,['factor_date','nexttrade_date']],
                          on='factor_date',how='left')
             
-        # self.daily_df.set_index('trade_date',inplace=True)
-        # self.adj_factor_df.set_index('trade_date',inplace=True)
-        # 延迟到backtest循环里再读表
         self.factor_df.set_index('nexttrade_date',inplace=True)
         
+        #记录如果憋手里的话憋了哪些票/持仓占比/憋在了第几层
+        self.passivehold_df = pd.DataFrame(columns=['ts_code','buy_price','adj_factor','layer','ratio'])
         
         #metrics and layer return record
         self.metrics_df = pd.DataFrame(columns=['trade_date','ic','rankic'])
         self.layerrt_df = pd.DataFrame(columns=['trade_date','layer','rt','nv'])
-        selector.close()
-
-#改成先分层算每个股的收益再扔到cal_rt里去筛选要不要下一期不存在的然后计算Layer_rt            
-    def _cal_layer_and_stockrt(self,trade_date,trade_date_next,layer_num=10):
-        buy_df = self.daily_df.loc[trade_date,['ts_code','close']]
-        sell_df = self.daily_df.loc[trade_date_next,['ts_code','close']]
-        buy_adj_df = self.adj_factor_df.loc[trade_date],['ts_code','adj_factor']
-        sell_adj_df = self.adj_factor_df.loc[trade_date_next,['ts_code','adj_factor']]
-        buy_df = pd.merge(left=buy_df,right=buy_adj_df,on='ts_code',how='inner')
-        sell_df = pd.merge(left=sell_df,right=sell_adj_df,on='ts_code',how='inner')
-        cal_df = pd.merge(left=buy_df,right=sell_df,on='ts_code',how='left',suffixes=('_0','_1'))
-        cal_df['close_1_adj'] = cal_df['close_1'] * cal_df['adj_factor_1'] / cal_df['adj_factor_0']
-        cal_df['nv'] = cal_df['close_1_adj'] / cal_df['close_0']
-        cal_df['rt'] = cal_df['nv'] - 1
-        cal_df['layer'] = pd.qcut(cal_df['factor'],q=layer_num,labels=False)
-        
-        
-        return cal_df.loc[:['ts_code','layer','nv','rt']]
+        selector.close()     
     
+    
+    def _cal_layer(self,trade_date,cal_layer_func,layer_num,trade_method):
+        buy_df = self.daily_df.loc[trade_date,['ts_code','close','vol','amount']]
+        buy_adj_df = self.adj_factor_df.loc[trade_date,['ts_code','adj_factor']]
+        buy_df = pd.merge(left=buy_df,right=buy_adj_df,on='ts_code',how='inner')
+        
+        
+        factor_df = self.factor_df.loc[trade_date,['ts_code','factor']]
+        buy_df = pd.merge(left=buy_df,right=factor_df,on='ts_code',how='left')
+        
+        #此为踢出上市未满newlist_delay时间的
+        if len(self.stock_list)>0:
+            listtradable_df = self.stock_list[self.stock_list['newlist_startdate']<trade_date]
+            buy_df = pd.merge(left=buy_df,right=listtradable_df,on='ts_code',how='left')
+            buy_df = buy_df[pd.notnull(buy_df['newlist_startdate'])]
+        
+        #此为踢出ST等ignore_level的
+        
+        namechange_df = self.namechange.query(f'{trade_date}>=start_date & {trade_date}<=end_date')[['ts_code','stock_name']]
+        buy_df = pd.merge(left=buy_df,right=namechange_df,on='ts_code',how='left')
+        buy_df = buy_df[buy_df['stock_name'].map(self.ignore_filter)]
+        #先分层再踢出涨停不能买入，因为是前天晚上做策略,第二天收盘才知道涨停没涨停，涨停是超前信息
+        if cal_layer_func:#不是lambda x的函数，是直接传入一个seriresz，再自己返回一个series，操作空间大
+            layer_series = cal_layer_func(buy_df['factor'])
+            if len(layer_series) == len(buy_df):
+                buy_df['layer'] = cal_layer_func(buy_df['factor'])
+            else:
+                raise Exception('length of user defined layer series does not match length of factor dataframe')
+        else:
+            buy_df['layer'] = pd.qcut(buy_df['factor'],q=layer_num,labels=False)#[ts_code,close,adj_factor,factor,layer]
+        
+        #加涨停，这里用收盘价是否涨停，因为收盘调仓
+        up_limit_df = self.stk_limit_df.loc[trade_date,['ts_code','up_limit','up_limit_allday']]  
+        buy_df = pd.merge(left=buy_df,right=up_limit_df,on='ts_code',how='left')
+        if trade_method == 'weighted_mean':
+            buy_df = buy_df[buy_df['up_limit_allday']!=1]
+            buy_df['buy_price'] = buy_df.apply(lambda x:x.amount/x.vol*10,axis=1)
+        elif trade_method == 'open_close':
+            buy_df = buy_df[buy_df['close']!=buy_df['up_limit']]#踢出收盘价=涨停价
+            buy_df['buy_price'] = buy_df['close']
+        #以下为加入憋手里的部分，并且为每个票附上持仓比例(憋手里的可能和这期新来的平均分的数值不一样)
+        buy_df = pd.concat([buy_df,self.passivehold_df],join='outer',ignore_index=True)
+        def cal_ratio(df):
+            ratio_sum = 1 - df['ratio'].sum()
+            null_cnt = pd.isnull(df['ratio']).sum()
+            df['ratio'] = df['ratio'].map(lambda x: ratio_sum/null_cnt if pd.isnull(x) else x)
+            return df       
+        buy_df = buy_df.groupby(by='layer').apply(cal_ratio)
+
+        self.buy_df = buy_df
+        return buy_df
+    
+    def _cal_rt_passivehold(self,trade_date,trade_date_next,trade_method):
+        sell_df = self.daily_df.loc[trade_date_next,['ts_code','open','vol','amount']]
+        sell_adj_df = self.adj_factor_df.loc[trade_date_next,['ts_code','adj_factor']]
+        sell_df = pd.merge(left=sell_df,right=sell_adj_df,on='ts_code',how='inner')
+        #加跌停,下一期的收盘价=跌停价的不能在sell_df里
+        down_limit_df = self.stk_limit_df.loc[trade_date_next,['ts_code','down_limit','down_limit_allday']]  
+        sell_df = pd.merge(left=sell_df,right=down_limit_df,on='ts_code',how='left')
+        if trade_method == 'weighted_mean':
+            sell_df = sell_df[sell_df['down_limit_allday']!=1]
+            sell_df['sell_price'] = sell_df.apply(lambda x:x.amount/x.vol*10,axis=1)
+        elif trade_method == 'open_close':
+            sell_df = sell_df[sell_df['open']!=sell_df['down_limit']]#踢出收盘价=跌停价
+            sell_df['sell_price'] = sell_df['open']
+        self.sell_df = sell_df
+        
+        cal_df = pd.merge(left=self.buy_df,right=self.sell_df,on='ts_code',how='left',suffixes=('','_sell'))
+        self.passivehold_df = cal_df[pd.isnull(cal_df['sell_price'])][['ts_code','buy_price','adj_factor','layer','ratio']]
+        
+        cal_df['sell_price_adj'] = cal_df.apply(lambda x: x['sell_price']*x['adj_factor_sell']/x['adj_factor']\
+                                                if pd.notnull(x['sell_price']) else x['buy_price'], axis=1)
+        #加退市,退市的close_sell_adj=0 
+        cal_df = pd.merge(left = cal_df,
+                          right = self.stock_delist.query(f'{trade_date}<=delist_date<={trade_date_next}')[['ts_code','delist_date']],
+                          how='left',on='ts_code')
+        cal_df['sell_price_adj'] = cal_df.apply(lambda x:x.sell_price_adj if pd.isnull(x.delist_date) else 0.0,axis=1)
+        if len(cal_df[cal_df['sell_price_adj']==0]) > 0:
+            print('delist-----------------',cal_df)    
+        cal_df['nv'] = cal_df['sell_price_adj']/cal_df['buy_price']
+        cal_df['rt'] = cal_df['nv'] - 1
+        self.cal_df = cal_df
+        return cal_df
+
 
     @staticmethod
-    def _cal_ic(rt_df):
-        rt_df = rt_df[pd.notnull(rt_df['factor'])]#np.nan算corr是略过还是当0？
-        ic = rt_df['rt'].corr(rt_df['factor'],method="pearson")
-        rankic = rt_df['rt'].corr(rt_df['factor'],method="spearman")
+    def _cal_ic(cal_df):
+        cal_df = cal_df[pd.notnull(cal_df['factor'])]#np.nan算corr是略过还是当0？
+        ic = cal_df['rt'].corr(cal_df['factor'],method="pearson")
+        rankic = cal_df['rt'].corr(cal_df['factor'],method="spearman")
         return ic,rankic
     
     @staticmethod
-    def _cal_layerrt(rt_df,keep_null):   
+    def _cal_layerrt(cal_df,keep_null):
+        
         if keep_null:
-            rt_df['layer'] = rt_df['layer'].fillna(-1)
+            cal_df['layer'] = cal_df['layer'].fillna(-1)
         else:
-            rt_df = rt_df[pd.notnull(rt_df['factor'])]
-        layer_rt = rt_df.groupby(by='layer').agg({'rt':'mean','nv':'mean'}).reset_index()
-        return layer_rt
+            cal_df = cal_df[pd.notnull(cal_df['layer'])]
+        cal_df['rt_ratio'] = cal_df['rt'] * cal_df['ratio']
+        cal_df['nv_ratio'] = cal_df['nv'] * cal_df['ratio']  
+        layer_rt = cal_df.groupby(by='layer').agg({'rt_ratio':'sum','nv_ratio':'sum'}).reset_index()
+        return layer_rt.rename(columns={'rt_ratio':'rt','nv_ratio':'nv'})
     
-    def backtest(self,method='buyonlysellable',layer_num=10,keep_null=True,step_size=12):    
+    def backtest(self,method='buyonlysellable',trade_method ='weighted_mean',
+                 cal_layer_func=None,layer_num=10,keep_null=True,step_size=12):    
         assert method in ('buyonlysellable','holdinlayer'),'invalid method' #加上憋手里的回测方式
+        assert trade_method in ('weighted_mean','open_close'),'invalid method' #加上憋手里的回测方式
         selector = Selector()
-        for i in range(0,len(self.date_list),step_size):
-            date_list = self.date_list[i:i+step_size]
+        for i in range(0,len(self.date_list)-1,step_size):
+            #以下为mysql to memory读取流
+            date_list = self.date_list[i:i+step_size+1]
             self.daily_df = selector.daily(date_list = date_list,stock_pool=self.stock_pool)
             self.adj_factor_df = selector.adj_factor(date_list = date_list,stock_pool=self.stock_pool)
+            self.stk_limit_df = selector.stk_limit(date_list = date_list,stock_pool=self.stock_pool)
             self.daily_df.set_index('trade_date',inplace=True)
             self.adj_factor_df.set_index('trade_date',inplace=True)
-            #以上mysql to memory为读取流
+            self.stk_limit_df.set_index('trade_date',inplace=True)
+            #以下为每个调仓日分层并结算下一期收益and计算憋手里等等琐事
             for i in range(len(date_list)-1):             
                 trade_date = date_list[i]
                 trade_date_next = date_list[i+1]
-                cal_df = self._cal_layer_and_stockrt(trade_date,trade_date_next,layer_num)
+                print(trade_date)
                 if method == 'buyonlysellable':
-                    rt_df = cal_df[pd.notnull(cal_df['nv'])]
-                    ic,rankic = self._cal_ic(rt_df)
-                    layerrt = self._cal_layerrt(rt_df,keep_null)
+                    ...
+                    # rt_df = cal_df[pd.notnull(cal_df['nv'])]#筛选出下一期也在里边的
+                    # ic,rankic = self._cal_ic(rt_df)
+                    # layerrt = self._cal_layerrt(rt_df,keep_null)
+                    # layerrt['trade_date'] = trade_date_next
+                    # self.metrics_df = self.metrics_df.append({'trade_date':trade_date_next,'ic':ic,'rankic':rankic},ignore_index=True)
+                    # self.layerrt_df = self.layerrt_df.append(layerrt,ignore_index=True)
+                
+                elif method == 'holdinlayer':
+                    
+                    self._cal_layer(trade_date,cal_layer_func,layer_num,trade_method)
+                    cal_df = self._cal_rt_passivehold(trade_date,trade_date_next,trade_method)
+                    ic,rankic = self._cal_ic(cal_df)
+                    layerrt = self._cal_layerrt(cal_df,keep_null)
                     layerrt['trade_date'] = trade_date_next
                     self.metrics_df = self.metrics_df.append({'trade_date':trade_date_next,'ic':ic,'rankic':rankic},ignore_index=True)
                     self.layerrt_df = self.layerrt_df.append(layerrt,ignore_index=True)
-                elif method == 'holdinlayer':
-                    ...
-                    
 
         
         selector.close()

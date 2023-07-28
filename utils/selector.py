@@ -117,7 +117,7 @@ class Selector:
         return df_cum.sort_values(by='trade_date').reset_index(drop=True)
         
     def __getattr__(self,table_name):
-        if table_name in ('daily','dailybasic','adj_factor','moneyflow'):
+        if table_name in ('daily','dailybasic','adj_factor','moneyflow','stk_limit'):
             return partial(self._query_year_split,table_name)
         else:
             raise AttributeError(f'Selector has no attribute {table_name}')
@@ -183,8 +183,31 @@ class Selector:
             df = self.sqlwarmin.select(query_select)
             df_cum = pd.concat([df_cum,df], ignore_index=True, join='outer')
         return df_cum
-        
-        
+    
+    def stock_basic(self,stock_pool=None):
+        query_select = '''
+        select * from stock_basic
+        '''
+        if stock_pool:
+            query_select += 'where ts_code in ('
+            for ts_code in stock_pool:
+                query_select += f"'{ts_code}',"
+            query_select = query_select[:-1] + ');'     
+        df = self.sql.select(query_select)
+        return df
+    
+    def namechange(self,stock_pool=None):
+        query_select = '''
+        select * from namechange
+        '''
+        if stock_pool:
+            query_select += 'where ts_code in ('
+            for ts_code in stock_pool:
+                query_select += f"'{ts_code}',"
+            query_select = query_select[:-1] + ');'     
+        df = self.sql.select(query_select)
+        return df
+    
     def close(self):
         self.sql.close()
         self.sqlwarmin.close()
