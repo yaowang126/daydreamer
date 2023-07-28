@@ -34,6 +34,7 @@ class Factorlens:
         factor_df = factor_df.reset_index(drop=True)
         factor_df = factor_df.sort_values(by='factor_date')
         factor_df = factor_df.reset_index(drop=True)
+        factor_df = factor_df.sort_values(by='factor_date')
         self.factor_name = factor_name
         #build for rt_df calculation
         self.factor_date_list = factor_df.factor_date.unique().tolist()
@@ -47,6 +48,7 @@ class Factorlens:
                                  right_on='cal_date',how='left')
         self.date_list = trade_date_df.nexttrade_date.unique().tolist()
         
+<<<<<<< HEAD
         #此为加上新股可被交易的日期
         if newlist_delay:
             def cal_newlist_startdate(newlist_date,newlist_delay):
@@ -98,6 +100,9 @@ class Factorlens:
         self.factor_df = pd.merge(left=factor_df,right=trade_date_df.loc[:,['factor_date','nexttrade_date']],
                          on='factor_date',how='left')
             
+=======
+       
+>>>>>>> main
         self.factor_df.set_index('nexttrade_date',inplace=True)
         
         #记录如果憋手里的话憋了哪些票/持仓占比/憋在了第几层
@@ -157,6 +162,7 @@ class Factorlens:
             return df       
         buy_df = buy_df.groupby(by='layer').apply(cal_ratio)
 
+<<<<<<< HEAD
         self.buy_df = buy_df
         return buy_df
     
@@ -174,10 +180,15 @@ class Factorlens:
             sell_df = sell_df[sell_df['open']!=sell_df['down_limit']]#踢出收盘价=跌停价
             sell_df['sell_price'] = sell_df['open']
         self.sell_df = sell_df
+=======
+
+
+>>>>>>> main
         
         cal_df = pd.merge(left=self.buy_df,right=self.sell_df,on='ts_code',how='left',suffixes=('','_sell'))
         self.passivehold_df = cal_df[pd.isnull(cal_df['sell_price'])][['ts_code','buy_price','adj_factor','layer','ratio']]
         
+<<<<<<< HEAD
         cal_df['sell_price_adj'] = cal_df.apply(lambda x: x['sell_price']*x['adj_factor_sell']/x['adj_factor']\
                                                 if pd.notnull(x['sell_price']) else x['buy_price'], axis=1)
         #加退市,退市的close_sell_adj=0 
@@ -192,6 +203,9 @@ class Factorlens:
         self.cal_df = cal_df
         return cal_df
 
+=======
+
+>>>>>>> main
 
     @staticmethod
     def _cal_ic(cal_df):
@@ -201,11 +215,16 @@ class Factorlens:
         return ic,rankic
     
     @staticmethod
+<<<<<<< HEAD
     def _cal_layerrt(cal_df,keep_null):
         
+=======
+
+>>>>>>> main
         if keep_null:
             cal_df['layer'] = cal_df['layer'].fillna(-1)
         else:
+<<<<<<< HEAD
             cal_df = cal_df[pd.notnull(cal_df['layer'])]
         cal_df['rt_ratio'] = cal_df['rt'] * cal_df['ratio']
         cal_df['nv_ratio'] = cal_df['nv'] * cal_df['ratio']  
@@ -250,6 +269,9 @@ class Factorlens:
                     self.metrics_df = self.metrics_df.append({'trade_date':trade_date_next,'ic':ic,'rankic':rankic},ignore_index=True)
                     self.layerrt_df = self.layerrt_df.append(layerrt,ignore_index=True)
 
+=======
+
+>>>>>>> main
         
         selector.close()
         
@@ -278,7 +300,7 @@ class Factorlens:
         
         for group_num in self.layerrt_df.layer.unique():
             axes3.plot(self.layerrt_df.trade_date.unique().astype(int).astype(str),
-                       self.layerrt_df[self.layerrt_df['layer']==group_num]['cumnv'],label=f'group_{group_num}')
+                        self.layerrt_df[self.layerrt_df['layer']==group_num]['cumnv'],label=f'group_{group_num}')
         axes3.set_xticklabels(self.layerrt_df.trade_date.unique().astype(int).astype(str),rotation=45,size=5)
         axes3.legend(loc=2,prop = {'size':5})
         

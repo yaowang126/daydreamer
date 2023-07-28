@@ -70,6 +70,7 @@ class SQL():
         
         return df
     
+    
     def execute(self,query):
         cursor = self.connect.cursor()
         cursor.execute(query)

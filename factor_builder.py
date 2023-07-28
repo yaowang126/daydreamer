@@ -27,14 +27,28 @@ def get_sampletable(*tablenames,before_days):
     start_date_before = int(trade_cal[trade_cal['cal_date']==start_date].iloc[0].lag)
 
     selector = Selector()
-    stock_pool = ['600519.SH','601398.SH','601857.SH','600941.SH','601288.SH',
-                  '601988.SH','300750.SZ','601318.SH','600036.SH','600873.SH']
+    stock_pool = ['000519.SZ','600685.SH','000547.SZ','000561.SZ','600879.SH',
+                  '600893.SH','600760.SH','600764.SH','600765.SH','600072.SH',
+                  '000738.SZ','000768.SZ','000733.SZ','600118.SH','600150.SH',
+                  '600316.SH','600038.SH','600399.SH','600372.SH','600391.SH',
+                  '600456.SH','600416.SH','600562.SH','600435.SH','600184.SH',
+                  '600967.SH','002013.SZ','600482.SH','002025.SZ','002049.SZ',
+                  '002149.SZ','002151.SZ','002179.SZ','002190.SZ','601989.SH',
+                  '300034.SZ','002338.SZ','300045.SZ','002414.SZ','300114.SZ',
+                  '002465.SZ','300395.SZ','603678.SH','300447.SZ','000687.SZ',
+                  '600862.SH','300474.SZ','300527.SZ','002829.SZ','300581.SZ',
+                  '300593.SZ','300629.sz','300696.SZ','300699.SZ','300123.SZ',
+                  '300711.sz','300719.SZ','300722.SZ','300726.SZ','002625.SZ',
+                  '002389.SZ','603712.SH','601606.SH','002933.SZ','002935.SZ',
+                  '300629.SZ','300762.SZ','603267.SH','300777.SZ','300775.SZ',
+                  '601698.SH','002519.SZ','300810.SZ','002977.SZ','002985.SZ',
+                  '300855.SZ','300875.SZ','300900.SZ','300922.SZ','300711.SZ']
     
     sampletable_list=[]
     for tablename in tablename_list:
         sampletable_list.append(getattr(selector,tablename)(start_date=start_date_before, 
                                     end_date=end_date,stock_pool=stock_pool))
-
+    
     return sampletable_list[0] if len(sampletable_list) == 1 else sampletable_list
 
 
