@@ -7,6 +7,7 @@ Created on Fri Jul 28 10:59:30 2023
 from .utils.selector import Selector
 import pandas as pd
 from abc import ABC,abstractclassmethod
+from matplotlib import pyplot as plt
 
 class Recorder:
     def __init__(self,ts_code,share,direction,indate,inprice,outdate,outprice):
@@ -73,7 +74,6 @@ class Account:
                 buyshare = diffshare
                 buycost = buyshare * avgprice * (1+self.fee)
                 if self.cash>=buycost:
-                    print(ts_code,buycost)
                     self.portfolio[ts_code].share += buyshare
                     self.portfolio[ts_code].allshare += buyshare
                     self.cash -= buycost
@@ -110,6 +110,56 @@ class Account:
                     buyshare = self.cash/avgprice/(1+self.fee)
                     self.portfolio[ts_code] = Position(ts_code,buyshare)
                     self.cash = 0.0
+     
+                    
+    def order_money(self,ts_code,money):
+        if ts_code not in self.today_pool.index:
+            return
+        avgprice = self.today_pool.loc[ts_code].amount/self.today_pool.loc[ts_code].vol*10
+        if ts_code in self.portfolio:
+            if money>0.0 and self.today_pool.loc[ts_code].up_limit_allday==0:
+                buyshare = money/avgprice
+                buycost = money * (1+self.fee)
+                if self.cash>= buycost:
+                    self.portfolio[ts_code].share += buyshare
+                    self.portfolio[ts_code].allshare += buyshare
+                    self.cash -= buycost
+                else:
+                    buyshare = self.cash/avgprice/(1+self.fee)
+                    self.portfolio[ts_code].share += buyshare
+                    self.portfolio[ts_code].allshare += buyshare
+                    self.cash = 0.0
+            elif money<0.0 and self.today_pool.loc[ts_code].down_limit_allday==0:
+                sellshare = -money/avgprice
+                sellrevenue = -money
+                if sellshare > self.portfolio[ts_code].share:
+                    sellshare = self.portfolio[ts_code].share
+                    sellrevenue = self.portfolio[ts_code].share * avgprice
+                    self.portfolio[ts_code].share -= sellshare
+                    self.portfolio[ts_code].allshare -= sellshare
+                    self.cash += sellrevenue*(1-self.tax-self.fee)
+                else:
+                    self.cash += sellrevenue*(1-self.tax-self.fee)
+                    self.portfolio[ts_code].share -= sellshare
+                    self.portfolio[ts_code].allshare -= sellshare
+        else:
+            if self.today_pool.loc[ts_code].up_limit_allday==0:
+                buyshare = money/avgprice
+                buycost = money * (1+self.fee)
+                if self.cash>=buycost:
+                    self.portfolio[ts_code] = Position(ts_code,buyshare)
+                    self.cash -= buycost
+                else:
+                    buyshare = self.cash.avgprice/(1+self.fee)
+                    self.portfolio[ts_code].share += buyshare
+                    self.portfolio[ts_code].allshare += buyshare
+                    self.cash = 0.0
+                
+                
+                
+                    
+                    
+                    
     #盘后
     def updateprice(self):
         for ts_code in self.portfolio:
@@ -168,6 +218,7 @@ class Context(ABC):
         self.fee = fee
         self.trade_cal = self.selector.trade_cal(start_date=20000000, 
                                                  end_date=30000000)
+        self.netvaluerecorder = {}
     
     @abstractclassmethod
     def initialize(self):
@@ -226,8 +277,21 @@ class Context(ABC):
             self.account.updateprice()
             self.afterclose()
             
-        self.selector.close()            
+            self.netvaluerecorder[self.date] = self.account.netvalue
+        self.selector.close()
         
+    def draw(self,path=None):
+        figure = plt.figure(figsize=(10,10))
+        axes1 = plt.subplot(1,1,1)
+        axes1.plot(datelist:=[str(int(date)) for date,nevtalue in self.netvaluerecorder.items()],
+                    netvaluelist:=[nevtalue for date,nevtalue in self.netvaluerecorder.items()],label='netvalue')
+        axes1.set_xticklabels(datelist,rotation=45,size=5)
+        axes1.legend(loc=2,prop = {'size':5})
+        plt.title('Backtest')
+        if not path:
+            path = './Backtest.png'
+        plt.savefig(path,dpi=300)
+        return datelist,netvaluelist
     
         
         
