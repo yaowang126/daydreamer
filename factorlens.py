@@ -10,7 +10,7 @@ from .utils.selector import Selector
 import matplotlib
 from matplotlib import pyplot as plt
 matplotlib.rcParams['font.sans-serif'] = ['SimHei']
-from collections import Iterable
+from collections.abc import Iterable
 from functools import partial
 import datetime
 import warnings
@@ -135,10 +135,14 @@ class Factorlens:
             layer_series = cal_layer_func(buy_df['factor'])
             if len(layer_series) == len(buy_df):
                 buy_df['layer'] = cal_layer_func(buy_df['factor'])
+                buy_df['layer'] = buy_df['layer'].fillna('null')
             else:
                 raise Exception('length of user defined layer series does not match length of factor dataframe')
         else:
+            
             buy_df['layer'] = pd.qcut(buy_df['factor'],q=layer_num,labels=False)#[ts_code,close,adj_factor,factor,layer]
+            buy_df['layer'] = buy_df['layer'].fillna('null')
+
         
         #加涨停，这里用收盘价是否涨停，因为收盘调仓
         up_limit_df = self.stk_limit_df.loc[trade_date,['ts_code','up_limit','up_limit_allday']]  
@@ -156,7 +160,8 @@ class Factorlens:
             null_cnt = pd.isnull(df['ratio']).sum()
             df['ratio'] = df['ratio'].map(lambda x: ratio_sum/null_cnt if pd.isnull(x) else x)
             return df       
-        buy_df = buy_df.groupby(by='layer').apply(cal_ratio)
+        buy_df = buy_df.groupby(by='layer').apply(cal_ratio).reset_index(drop=True)
+        
 
         self.buy_df = buy_df
         return buy_df
@@ -205,19 +210,16 @@ class Factorlens:
     @staticmethod
     def _cal_layerrt(cal_df,keep_null):
         
-
-        if keep_null:
-            cal_df['layer'] = cal_df['layer'].fillna(-1)
-        else:
-
-            cal_df = cal_df[pd.notnull(cal_df['layer'])]
+        if not keep_null:
+            cal_df = cal_df[cal_df['layer'] != 'null']
+            
         cal_df['rt_ratio'] = cal_df['rt'] * cal_df['ratio']
         cal_df['nv_ratio'] = cal_df['nv'] * cal_df['ratio']  
         layer_rt = cal_df.groupby(by='layer').agg({'rt_ratio':'sum','nv_ratio':'sum'}).reset_index()
         return layer_rt.rename(columns={'rt_ratio':'rt','nv_ratio':'nv'})
     
     def backtest(self,method='buyonlysellable',trade_method ='weighted_mean',
-                 cal_layer_func=None,layer_num=10,keep_null=True,step_size=12):    
+                 cal_layer_func=None,layer_num=10,keep_null=False,step_size=12):    
         assert method in ('buyonlysellable','holdinlayer'),'invalid method' #加上憋手里的回测方式
         assert trade_method in ('weighted_mean','open_close'),'invalid method' #加上憋手里的回测方式
         selector = Selector()
@@ -250,8 +252,10 @@ class Factorlens:
                     ic,rankic = self._cal_ic(cal_df)
                     layerrt = self._cal_layerrt(cal_df,keep_null)
                     layerrt['trade_date'] = trade_date_next
-                    self.metrics_df = self.metrics_df.append({'trade_date':trade_date_next,'ic':ic,'rankic':rankic},ignore_index=True)
-                    self.layerrt_df = self.layerrt_df.append(layerrt,ignore_index=True)
+                    self.metrics_df = pd.concat([self.metrics_df,pd.DataFrame({'trade_date':[trade_date_next],
+                                               'ic':[ic],'rankic':[rankic]})],ignore_index=True)
+
+                    self.layerrt_df = pd.concat([self.layerrt_df,layerrt],ignore_index=True)
 
         
         selector.close()
