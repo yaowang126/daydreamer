@@ -8,7 +8,7 @@ import datetime
 from .sql import SQL
 import pandas as pd
 from functools import partial
-from collections import Iterable
+from collections.abc import Iterable
 from collections import defaultdict
 import json
 import os
@@ -209,6 +209,35 @@ class Selector:
         df = self.sql.select(query_select)
         return df
     
+    def dividend(self,ex_date=None,pay_date=None,div_listdate=None,stock_pool=None):
+        checksum = sum([bool(ex_date),bool(pay_date),bool(div_listdate)])
+        assert(checksum <=1),'Only one of ex_date,pay_date,div_listdate can be a param'
+        if checksum == 1:
+            if ex_date:
+                colname = 'ex_date'
+                colvalue = ex_date
+            elif pay_date :
+                colname = 'pay_date'
+                colvalue = pay_date
+            else:
+                colname = 'div_listdate'
+                colvalue = div_listdate
+            if stock_pool:
+                query_select = f'''
+                select * from dividend where (ts_code,{colname}) in (
+                '''
+                for ts_code in stock_pool:
+                    query_select += f"('{ts_code}',{colvalue}),"
+                query_select = query_select[:-1] + ');'
+            
+            else:
+                query_select = f'''
+                select * from dividend where {colname} = {colvalue};
+                '''
+        df = self.sql.select(query_select)
+        return df
+            
+        
 
     def close(self):
         self.sql.close()
