@@ -6,6 +6,7 @@ Created on Fri Jul 28 10:59:30 2023
 """
 from .utils.selector import Selector
 import pandas as pd
+import datetime
 from abc import ABC,abstractclassmethod
 from matplotlib import pyplot as plt
 
@@ -100,6 +101,7 @@ class Account:
                     self.portfolio[ts_code].allshare -= sellshare
 
         else:
+            print(self.date,ts_code,self.today_pool.loc[ts_code].up_limit_allday)
             if self.today_pool.loc[ts_code].up_limit_allday==0:
                 buyshare= targetshare
                 buycost = buyshare * avgprice * (1+self.fee)
@@ -155,17 +157,14 @@ class Account:
                     self.portfolio[ts_code].allshare += buyshare
                     self.cash = 0.0
                 
-                
-                
-                    
-                    
                     
     #盘后
     def updateprice(self):
         for ts_code in self.portfolio:
             if ts_code in self.today_pool.index:
                 self.portfolio[ts_code].updateprice(self.today_pool.loc[ts_code].close)
-        self.portfoliovalue = sum([position.share*position.lastprice for ts_code,position in self.portfolio.items()])
+        self.portfoliovalue = sum([position.allshare*position.lastprice+position.divcash\
+                                   for ts_code,position in self.portfolio.items()])
         self.netvalue = self.cash + self.portfoliovalue
         
         portfolio_list = list(self.portfolio.keys())
@@ -175,14 +174,26 @@ class Account:
                 self.portfolio.pop(ts_code)
         
     #盘前
-    def nextday(self,nextday,today_pool,exdate_df,div_listdate_df,pay_date_df):
+    def nextday(self,nextday,today_pool,exdate_df,div_listdate_df,pay_date_df,today_delist):
         self.date = nextday
         self.today_pool = today_pool
         self.exdate_df = exdate_df
         self.div_listdate_df = div_listdate_df
         self.pay_date_df = pay_date_df
+        self.today_delist = today_delist
 
-        
+    
+    def delist(self):
+        portfolio_list = list(self.portfolio.keys())
+        if portfolio_list:
+            if len(self.today_delist)>0:
+                for ts_code in portfolio_list:
+                    if ts_code in self.today_delist.ts_code:
+                        delistnetvalue = self.portfolio[ts_code].last*self.portfolio[ts_code].allshare\
+                                            +self.portfolio[ts_code].divcash
+                                        
+                        self.netvalue -= delistnetvalue
+                        self.portfolio.pop(ts_code)
         
     def dividend(self):
         portfolio_list = list(self.portfolio.keys())
@@ -218,6 +229,13 @@ class Context(ABC):
         self.fee = fee
         self.trade_cal = self.selector.trade_cal(start_date=20000000, 
                                                  end_date=30000000)
+        self.stock_basic = self.selector.stock_basic()
+        self.namechange =  self.selector.namechange()
+        self.namechange = pd.merge(left=self.namechange,right=self.stock_basic[['ts_code','list_date']],
+                                   on='ts_code',how='left')
+        self.namechange = self.namechange.query('start_date>=list_date')
+        self.namechange['end_date'] = self.namechange['end_date'].fillna(datetime.datetime.now().strftime('%Y%m%d'))
+        self.namechange['end_date'] = self.namechange['end_date'].astype(int)
         self.netvaluerecorder = {}
     
     @abstractclassmethod
@@ -257,13 +275,19 @@ class Context(ABC):
         self.preparedata()
         
         for self.date in self.tradedate_list:
-            print(self.date)
             self.today_daily = self.selector.daily(date_list=[self.date])
             self.today_stk_limit = self.selector.stk_limit(date_list=[self.date])
             self.today_pool = pd.merge(left=self.today_daily,
                                        right=self.today_stk_limit,
                                        how='left',on='ts_code')
+
+            self.today_delist = self.stock_basic.query(f'delist_date=={self.date}')[['ts_code','delist_date']]
+            self.today_name = self.namechange.query(f'{self.date}>=start_date & {self.date}<=end_date')[['ts_code','stock_name']]
+            
+            self.today_pool = pd.merge(left=self.today_pool,right=self.today_name,
+                                       how ='left',on='ts_code')
             self.today_pool.set_index('ts_code',inplace=True)
+            
             self.exdate_df = self.selector.dividend(ex_date=self.date)
             self.div_listdate_df = self.selector.dividend(div_listdate=self.date)
             self.pay_date_df = self.selector.dividend(pay_date=self.date)
@@ -271,7 +295,9 @@ class Context(ABC):
 
             
             self.account.nextday(self.date,self.today_pool,
-                                 self.exdate_df,self.div_listdate_df,self.pay_date_df)
+                                 self.exdate_df,self.div_listdate_df,self.pay_date_df,
+                                 self.today_delist)
+            self.account.delist()
             self.account.dividend()
             self.handlebar()
             self.account.updateprice()
@@ -280,14 +306,18 @@ class Context(ABC):
             self.netvaluerecorder[self.date] = self.account.netvalue
         self.selector.close()
         
-    def draw(self,path=None):
+        
+    def draw(self,title=None,path=None):
         figure = plt.figure(figsize=(10,10))
         axes1 = plt.subplot(1,1,1)
         axes1.plot(datelist:=[str(int(date)) for date,nevtalue in self.netvaluerecorder.items()],
                     netvaluelist:=[nevtalue for date,nevtalue in self.netvaluerecorder.items()],label='netvalue')
         axes1.set_xticklabels(datelist,rotation=45,size=5)
         axes1.legend(loc=2,prop = {'size':5})
-        plt.title('Backtest')
+        if title:
+            plt.title(title)
+        else:
+            plt.title('Backtest')
         if not path:
             path = './Backtest.png'
         plt.savefig(path,dpi=300)
