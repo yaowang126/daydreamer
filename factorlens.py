@@ -134,7 +134,7 @@ class Factorlens:
         if cal_layer_func:#不是lambda x的函数，是直接传入一个seriresz，再自己返回一个series，操作空间大
             layer_series = cal_layer_func(buy_df['factor'])
             if len(layer_series) == len(buy_df):
-                buy_df['layer'] = cal_layer_func(buy_df['factor'])
+                buy_df['layer'] = cal_layer_func(buy_df['factor']).astype(str)
                 buy_df['layer'] = buy_df['layer'].fillna('null')
             else:
                 raise Exception('length of user defined layer series does not match length of factor dataframe')
