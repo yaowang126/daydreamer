@@ -101,6 +101,7 @@ class Account:
                     self.portfolio[ts_code].allshare -= sellshare
 
         else:
+            print(self.date,ts_code,self.today_pool.loc[ts_code].up_limit_allday)
             if self.today_pool.loc[ts_code].up_limit_allday==0:
                 buyshare= targetshare
                 buycost = buyshare * avgprice * (1+self.fee)
@@ -173,8 +174,7 @@ class Account:
                 self.portfolio.pop(ts_code)
         
     #盘前
-    def nextday(self,nextday,today_pool,exdate_df,div_listdate_df,pay_date_df,
-                today_delist,today_name):
+    def nextday(self,nextday,today_pool,exdate_df,div_listdate_df,pay_date_df,today_delist):
         self.date = nextday
         self.today_pool = today_pool
         self.exdate_df = exdate_df
@@ -231,6 +231,9 @@ class Context(ABC):
                                                  end_date=30000000)
         self.stock_basic = self.selector.stock_basic()
         self.namechange =  self.selector.namechange()
+        self.namechange = pd.merge(left=self.namechange,right=self.stock_basic[['ts_code','list_date']],
+                                   on='ts_code',how='left')
+        self.namechange = self.namechange.query('start_date>=list_date')
         self.namechange['end_date'] = self.namechange['end_date'].fillna(datetime.datetime.now().strftime('%Y%m%d'))
         self.namechange['end_date'] = self.namechange['end_date'].astype(int)
         self.netvaluerecorder = {}
@@ -272,7 +275,6 @@ class Context(ABC):
         self.preparedata()
         
         for self.date in self.tradedate_list:
-            print(self.date)
             self.today_daily = self.selector.daily(date_list=[self.date])
             self.today_stk_limit = self.selector.stk_limit(date_list=[self.date])
             self.today_pool = pd.merge(left=self.today_daily,
@@ -295,6 +297,7 @@ class Context(ABC):
             self.account.nextday(self.date,self.today_pool,
                                  self.exdate_df,self.div_listdate_df,self.pay_date_df,
                                  self.today_delist)
+            self.account.delist()
             self.account.dividend()
             self.handlebar()
             self.account.updateprice()

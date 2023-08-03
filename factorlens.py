@@ -28,9 +28,9 @@ class Factorlens:
         else:
             self.stock_pool = factor_df['ts_code'].unique().tolist()
             
-        stock_basic = selector.stock_basic(stock_pool=self.stock_pool)
+        self.stock_basic = selector.stock_basic(stock_pool=self.stock_pool)
         
-        self.stock_delist = stock_basic[stock_basic['list_status'] =='D'][['ts_code','delist_date']]
+        self.stock_delist = self.stock_basic[self.stock_basic['list_status'] =='D'][['ts_code','delist_date']]
         factor_df = factor_df.reset_index(drop=True)
         factor_df = factor_df.sort_values(by='factor_date')
         factor_df = factor_df.reset_index(drop=True)
@@ -56,9 +56,9 @@ class Factorlens:
                 newlist_startdate = int(newlist_startdate.strftime('%Y%m%d'))
                 return newlist_startdate
             
-            stock_basic['newlist_startdate'] = stock_basic['list_date'].map(lambda x:cal_newlist_startdate(x,newlist_delay))
-            stock_basic['newlist_startdate'] = stock_basic['newlist_startdate'].astype(int)
-            self.stock_list = stock_basic[['ts_code','newlist_startdate']] 
+            self.stock_basic['newlist_startdate'] = self.stock_basic['list_date'].map(lambda x:cal_newlist_startdate(x,newlist_delay))
+            self.stock_basic['newlist_startdate'] = self.stock_basic['newlist_startdate'].astype(int)
+            self.stock_list = self.stock_basic[['ts_code','newlist_startdate']] 
         else:
             self.stock_list = pd.DataFrame()
             
@@ -84,6 +84,9 @@ class Factorlens:
         self.ignore_filter = partial(ingore_filter,ignore_level)
         self.namechange =  selector.namechange(stock_pool=self.stock_pool)
         #把名字结束日空值填成今天
+        self.namechange = pd.merge(left=self.namechange,right=self.stock_basic[['ts_code','list_date']],
+                                   on='ts_code',how='left')
+        self.namechange = self.namechange.query('start_date>=list_date')
         self.namechange['end_date'] = self.namechange['end_date'].fillna(datetime.datetime.now().strftime('%Y%m%d'))
         self.namechange['end_date'] = self.namechange['end_date'].astype(int)
         #此部分为自动加上最后一个调仓日
