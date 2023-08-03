@@ -6,6 +6,7 @@ Created on Fri Jul 28 10:59:30 2023
 """
 from .utils.selector import Selector
 import pandas as pd
+import datetime
 from abc import ABC,abstractclassmethod
 from matplotlib import pyplot as plt
 
@@ -230,6 +231,8 @@ class Context(ABC):
                                                  end_date=30000000)
         self.stock_basic = self.selector.stock_basic()
         self.namechange =  self.selector.namechange()
+        self.namechange['end_date'] = self.namechange['end_date'].fillna(datetime.datetime.now().strftime('%Y%m%d'))
+        self.namechange['end_date'] = self.namechange['end_date'].astype(int)
         self.netvaluerecorder = {}
     
     @abstractclassmethod
