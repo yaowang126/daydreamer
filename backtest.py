@@ -322,12 +322,11 @@ class Context(ABC):
         self.selector = Selector()
         grid = plt.GridSpec(3, 3, wspace=0.5, hspace=0.5)
         axes1 = plt.subplot(grid[0:2,0:3])
-        axes1.plot(datelist,
-                    netvaluelist/netvaluelist[0],label='netvalue')
+        axes1.plot(datelist,netvaluelist,label='netvalue')
         if compindex:
             index_daily = self.selector.index_daily(date_list=self.tradedate_list,stock_pool=[compindex])
             index_daily = index_daily.sort_values(by='trade_date')
-            axes1.plot(datelist,index_daily.close/index_daily.close[0],label=compindex)
+            axes1.plot(datelist,index_daily.close/index_daily.pre_close[0],label=compindex)
             
         axes1.set_xticklabels([date if i%20==0 else '' for i,date in enumerate(datelist)  ],rotation=45,size=5)
         axes1.legend(loc=2,prop = {'size':5})
@@ -336,14 +335,17 @@ class Context(ABC):
         axes2 = plt.subplot(grid[2,0:3])
         axes2.axis('off')
         axes2.axis('tight')
-        axes2.table(cellText=[[round(self._cal_annrt(netvaluelist,self.startdate,self.enddate),2),
-                               round(self._cal_ann_excessrt(netvaluelist,index_daily.close.to_list(), self.startdate, self.enddate),2),
-                               f'{round(self.cal_max_percent_drawdown(netvaluelist))}%',
-                               round(self._cal_sharp(netvaluelist),2),
-                               round(self._cal_sortino(netvaluelist),2)]],
-                    colLabels=['年化收益','年化超额(几何)','最大回撤','夏普比率','索提诺比率'],
-                    cellLoc='center',
-                    loc='center')
+        cellText = [[f'{round(self._cal_annrt(netvaluelist,self.startdate,self.enddate),2)}%',
+                    f'{round(self.cal_max_percent_drawdown(netvaluelist))}%',
+                    round(self._cal_sharp(netvaluelist),2),
+                    round(self._cal_sortino(netvaluelist),2)]]
+        colLabels = ['年化收益','最大回撤','夏普比率','索提诺比率']
+        if compindex:
+            cellText[0] = cellText[0][:1] +\
+                [f'{round(self._cal_ann_excessrt(netvaluelist,(index_daily.close/index_daily.pre_close[0]).to_list(),self.startdate,self.enddate))}%']\
+                    + cellText[0][1:]
+            colLabels = colLabels[:1] + ['超额收益(几何)'] + colLabels[1:]
+        axes2.table(cellText=cellText,colLabels=colLabels,cellLoc='center',loc='center')
         if title:
             axes1.set_title(title)
         else:
@@ -369,7 +371,7 @@ class Context(ABC):
         startdatetime = datetime.datetime.strptime(str(startdate), '%Y%m%d')
         enddatetime = datetime.datetime.strptime(str(enddate), '%Y%m%d')
         years = (enddatetime-startdatetime).days/365
-        ann_excessrt = (netvaluelist[-1]/netvaluelist[0])/(indexvaluelist[-1]/indexvaluelist[0])**(1/years)-1
+        ann_excessrt = ((netvaluelist[-1]/netvaluelist[0])/(indexvaluelist[-1]/indexvaluelist[0]))**(1/years)-1
         return ann_excessrt *100
     
     @staticmethod
