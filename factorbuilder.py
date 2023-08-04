@@ -62,7 +62,7 @@ class Factorbuilder:
         self.period = period
         self.stock_pool = stock_pool
         self.stock_num = len(stock_pool) if stock_pool else 4500
-        self.factor_df = pd.DataFrame(columns={'ts_code','factor_date','factor'})
+        self.factor_df = pd.DataFrame(columns=['ts_code','factor_date','factor'])
         selector = Selector()
         trade_cal = selector.trade_cal(20100101, 30000000)
         trade_cal = trade_cal[trade_cal['is_open']==1]

@@ -6,9 +6,12 @@ Created on Fri Jul 28 10:59:30 2023
 """
 from .utils.selector import Selector
 import pandas as pd
+import numpy as np
 import datetime
 from abc import ABC,abstractclassmethod
 from matplotlib import pyplot as plt
+plt.rcParams["font.sans-serif"]=["SimHei"]
+plt.rcParams["axes.unicode_minus"]=False
 
 class Recorder:
     def __init__(self,ts_code,share,direction,indate,inprice,outdate,outprice):
@@ -101,7 +104,6 @@ class Account:
                     self.portfolio[ts_code].allshare -= sellshare
 
         else:
-            print(self.date,ts_code,self.today_pool.loc[ts_code].up_limit_allday)
             if self.today_pool.loc[ts_code].up_limit_allday==0:
                 buyshare= targetshare
                 buycost = buyshare * avgprice * (1+self.fee)
@@ -194,6 +196,7 @@ class Account:
                                         
                         self.netvalue -= delistnetvalue
                         self.portfolio.pop(ts_code)
+
         
     def dividend(self):
         portfolio_list = list(self.portfolio.keys())
@@ -237,6 +240,7 @@ class Context(ABC):
         self.namechange['end_date'] = self.namechange['end_date'].fillna(datetime.datetime.now().strftime('%Y%m%d'))
         self.namechange['end_date'] = self.namechange['end_date'].astype(int)
         self.netvaluerecorder = {}
+        self.selector.close()
     
     @abstractclassmethod
     def initialize(self):
@@ -266,11 +270,14 @@ class Context(ABC):
     
             
     def backtest(self,startdate,enddate,startcash):
-
+        self.selector = Selector()
+        self.startdate = startdate
+        self.enddate = enddate
+        self.startcash = startcash
         trade_cal = self.trade_cal[self.trade_cal['is_open']==1]
         trade_cal = trade_cal.query(f'{startdate}<=cal_date<={enddate}')
         self.tradedate_list = trade_cal.cal_date.to_list()
-        self.account = Account(startcash,self.tax,self.fee)
+        self.account = Account(self.startcash,self.tax,self.fee)
         self.initialize()
         self.preparedata()
         
@@ -307,23 +314,90 @@ class Context(ABC):
         self.selector.close()
         
         
-    def draw(self,title=None,path=None):
-        figure = plt.figure(figsize=(10,10))
-        axes1 = plt.subplot(1,1,1)
-        axes1.plot(datelist:=[str(int(date)) for date,nevtalue in self.netvaluerecorder.items()],
-                    netvaluelist:=[nevtalue for date,nevtalue in self.netvaluerecorder.items()],label='netvalue')
-        axes1.set_xticklabels(datelist,rotation=45,size=5)
+    def draw(self,title=None,path=None,compindex=None):
+        datelist=[str(int(date)) for date,nevtalue in self.netvaluerecorder.items()]
+        netvaluelist=[nevtalue/self.startcash for date,nevtalue in self.netvaluerecorder.items()]
+        
+        
+        self.selector = Selector()
+        grid = plt.GridSpec(3, 3, wspace=0.5, hspace=0.5)
+        axes1 = plt.subplot(grid[0:2,0:3])
+        axes1.plot(datelist,
+                    netvaluelist/netvaluelist[0],label='netvalue')
+        if compindex:
+            index_daily = self.selector.index_daily(date_list=self.tradedate_list,stock_pool=[compindex])
+            index_daily = index_daily.sort_values(by='trade_date')
+            axes1.plot(datelist,index_daily.close/index_daily.close[0],label=compindex)
+            
+        axes1.set_xticklabels([date if i%20==0 else '' for i,date in enumerate(datelist)  ],rotation=45,size=5)
         axes1.legend(loc=2,prop = {'size':5})
+        
+            
+        axes2 = plt.subplot(grid[2,0:3])
+        axes2.axis('off')
+        axes2.axis('tight')
+        axes2.table(cellText=[[round(self._cal_annrt(netvaluelist,self.startdate,self.enddate),2),
+                               round(self._cal_ann_excessrt(netvaluelist,index_daily.close.to_list(), self.startdate, self.enddate),2),
+                               f'{round(self.cal_max_percent_drawdown(netvaluelist))}%',
+                               round(self._cal_sharp(netvaluelist),2),
+                               round(self._cal_sortino(netvaluelist),2)]],
+                    colLabels=['年化收益','年化超额(几何)','最大回撤','夏普比率','索提诺比率'],
+                    cellLoc='center',
+                    loc='center')
         if title:
-            plt.title(title)
+            axes1.set_title(title)
         else:
-            plt.title('Backtest')
+            axes1.set_title('Backtest')
         if not path:
             path = './Backtest.png'
         plt.savefig(path,dpi=300)
+        
+        self.selector.close()
         return datelist,netvaluelist
     
-        
+    
+    @staticmethod
+    def _cal_annrt(netvaluelist,startdate,enddate):
+        startdatetime = datetime.datetime.strptime(str(startdate), '%Y%m%d')
+        enddatetime = datetime.datetime.strptime(str(enddate), '%Y%m%d')
+        years = (enddatetime-startdatetime).days/365
+        annrt = (netvaluelist[-1]/netvaluelist[0])**(1/years)-1
+        return annrt * 100
+    
+    @staticmethod
+    def _cal_ann_excessrt(netvaluelist,indexvaluelist,startdate,enddate):
+        startdatetime = datetime.datetime.strptime(str(startdate), '%Y%m%d')
+        enddatetime = datetime.datetime.strptime(str(enddate), '%Y%m%d')
+        years = (enddatetime-startdatetime).days/365
+        ann_excessrt = (netvaluelist[-1]/netvaluelist[0])/(indexvaluelist[-1]/indexvaluelist[0])**(1/years)-1
+        return ann_excessrt *100
+    
+    @staticmethod
+    def cal_max_percent_drawdown(netvaluelist):
+        price_array = np.array(netvaluelist)
+        max_value_before = np.maximum.accumulate(price_array)
+        drawdown = 1 - price_array / max_value_before
+        max_percent_drawdown = np.max(drawdown)
+        return max_percent_drawdown * 100
+    
+    @staticmethod
+    def _cal_sharp(netvaluelist,rf_rate=0.025):
+        df = pd.DataFrame({'net':netvaluelist})
+        df['rt'] = df['net']/df['net'].shift(1)-1
+        ann_rt = df['rt'].mean() * 250
+        ann_std = df['rt'].std() * (250**(1/2))
+        sharp = (ann_rt - rf_rate)/ann_std
+        return sharp
+    
+    @staticmethod
+    def _cal_sortino(netvaluelist,rf_rate=0.025):
+        df = pd.DataFrame({'net':netvaluelist})
+        df['rt'] = df['net']/df['net'].shift(1)-1
+        negrt = df.query('rt<0')['rt']
+        ann_rt = df['rt'].mean() * 250
+        ann_std = negrt.std() * (250**(1/2))
+        sortino = (ann_rt - rf_rate)/ann_std
+        return sortino
         
     
             

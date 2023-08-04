@@ -69,7 +69,7 @@ class Selector:
         return param_set
             
     
-    def _query_year_split(self,table_name,start_date=None,end_date=None,date_list=None,stock_pool=None):
+    def _querydaily_year_split(self,table_name,start_date=None,end_date=None,date_list=None,stock_pool=None):
         assert isinstance(start_date,int) and isinstance(end_date,int) \
             or isinstance(date_list,Iterable),'起始日期和截止日期必须传入或者转入日期列表'
             
@@ -94,9 +94,7 @@ class Selector:
             df_cum = pd.DataFrame()
             
             for year,date_list in param_set.items():
-                query_select = f'''
-                select * from {table_name}_{year} where trade_date in ({",".join([str(item) for item in date_list])})
-                '''
+                
                 if isinstance(stock_pool,Iterable):
             
                     query_select = f'''
@@ -116,12 +114,39 @@ class Selector:
                     
                     
         return df_cum.sort_values(by='trade_date').reset_index(drop=True)
+    
+    def _querydaily(self,table_name,start_date=None,end_date=None,date_list=None,stock_pool=None):
+        assert isinstance(start_date,int) and isinstance(end_date,int) \
+            or isinstance(date_list,Iterable),'起始日期和截止日期必须传入或者转入日期列表'
         
-    def __getattr__(self,table_name):
-        if table_name in ('daily','dailybasic','adj_factor','moneyflow','stk_limit'):
-            return partial(self._query_year_split,table_name)
-        else:
-            raise AttributeError(f'Selector has no attribute {table_name}')
+        if isinstance(start_date,int) and isinstance(end_date,int):     
+            query_select = f'''
+            select * from {table_name} where trade_date between {start_date} and {end_date}
+            '''
+            if isinstance(stock_pool,Iterable):
+                stock_pool_str = "("+ ",".join(["'"+item+"'" for item in stock_pool]) +")"
+                query_select += f''' and ts_code in {stock_pool_str}'''
+            query_select += ';'
+            df_cum = self.sql.select(query_select)
+        
+        elif isinstance(date_list,Iterable):
+            
+            if isinstance(stock_pool,Iterable):
+        
+                query_select = f'''
+                   select * from {table_name} where (ts_code,trade_date) in (
+                   '''
+                for ts_code in stock_pool:
+                    for trade_date in date_list:
+                        query_select += f"('{ts_code}',{trade_date}),"
+                query_select = query_select[:-1] + ');'
+            else:
+                 query_select = f'''
+                select * from {table_name} where trade_date in ({",".join([str(item) for item in date_list])})
+                '''
+            df_cum = self.sql.select(query_select)
+                    
+        return df_cum.sort_values(by='trade_date').reset_index(drop=True)    
             
     def fina_indicator(self,end_date_start=None,end_date_end=None,
                            ann_date_start=None,ann_date_end=None,
@@ -236,7 +261,16 @@ class Selector:
                 '''
         df = self.sql.select(query_select)
         return df
-            
+    
+
+    
+    def __getattr__(self,table_name):
+        if table_name in ('daily','dailybasic','adj_factor','moneyflow','stk_limit'):
+            return partial(self._querydaily_year_split,table_name)
+        elif table_name in ('index_daily','index_dailybasic'):
+            return partial(self._querydaily,table_name)
+        else:
+            raise AttributeError(f'Selector has no attribute {table_name}')
         
 
     def close(self):
