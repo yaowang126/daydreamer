@@ -37,10 +37,8 @@ class Mystrategy(Context):
     
     def preparedata(self):
         factordf = pd.read_excel('./data.xlsx')
-        # factordf['factor'] = factordf['factor_peg'] - factordf['factor_preroe90_median'] - factordf['factor_rating_upminusdown']\
-        #     + factordf['turnover_vol_f'] + factordf['ret20']
         factordf['factor'] = factordf['factor_peg'] - factordf['factor_preroe90_median'] - factordf['factor_rating_upminusdown']\
-        #     + factordf['turnover_vol_f'] + factordf['ret20']
+            + factordf['turnover_vol_f'] + factordf['ret20']
         self.factordf = factordf
 
     def beforeopen(self):
