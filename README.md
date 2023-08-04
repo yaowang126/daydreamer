@@ -4,16 +4,16 @@ factor analysis and strategy backtest tool with tushare data
 
 ## Introduction
 ### Clone to your runtime sys.path
-'''
+```
 cd YourPythonPath/Lib/site-packages
 git clone https://github.com/yaowang126/daydreamer.git
-'''
+```
 
 ### Usage of backtest
 Import class Context from backtest module 
-'''
+```
 from daydreamer.backtest import Context
-'''
+```
 
 -You must reload these 5 methods that are restricted by abstractmethod:
 -initialize
@@ -23,7 +23,7 @@ from daydreamer.backtest import Context
 -afterclose
 -You can follow this example
 
-'''
+```
 from daydreamer.backtest import Context
 import pandas as pd
 import numpy as np
@@ -89,7 +89,7 @@ if __name__ == '__main__':
                                     path='yourtitle')
 
 
-'''
+```
 
 
 
