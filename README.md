@@ -1,9 +1,9 @@
 # Daydreamer
 ## Discription
-factor analysis and strategy backtest tool with tushare data
+**Factor analysis and strategy backtest tool with tushare data**
 
 ## Introduction
-### Clone to your runtime sys.path
+### Clone to your Python runtime sys.path
 ```
 cd YourPythonPath/Lib/site-packages
 git clone https://github.com/yaowang126/daydreamer.git
