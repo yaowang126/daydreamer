@@ -18,7 +18,7 @@ def get_sampletable(*tablenames,before_days):
     tablename_list = tablenames
     selector = Selector()
     #before_days 不超 240
-    start_date = 20170103
+    start_date = 20140505
     end_date = 20171225
     
     trade_cal= selector.trade_cal(20100101, 30000000)
@@ -101,7 +101,7 @@ class Factorbuilder:
         return param_set
     
     
-    def factor_build(self,user_func,code_filter=['kechuangban','beijiaosuo'],in_memory=True):
+    def factor_build(self,user_func,code_filter=['beijiaosuo'],in_memory=True):
         selector = Selector()
         if in_memory:
             for param in self._year_split_continous():

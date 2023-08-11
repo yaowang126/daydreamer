@@ -259,6 +259,16 @@ class Selector:
                 query_select = f'''
                 select * from dividend where {colname} = {colvalue};
                 '''
+        else:
+            if stock_pool:
+                query_select = '''
+                select * from dividend where ts_code in (
+                '''
+                for ts_code in stock_pool:
+                    query_select +=f"'{ts_code},'"
+                query_select = query_select[:-1]+');'
+            else:
+                query_select = '''select * from dividend;'''
         df = self.sql.select(query_select)
         return df
     
