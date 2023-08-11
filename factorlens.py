@@ -114,7 +114,7 @@ class Factorlens:
     
     
     def _cal_layer(self,trade_date,cal_layer_func,layer_num,trade_method):
-        buy_df = self.daily_df.loc[trade_date,['ts_code','close','vol','amount']]
+        buy_df = self.daily_df.loc[trade_date,['ts_code','close','low','vol','amount']]
         buy_adj_df = self.adj_factor_df.loc[trade_date,['ts_code','adj_factor']]
         buy_df = pd.merge(left=buy_df,right=buy_adj_df,on='ts_code',how='inner')
         
@@ -142,16 +142,15 @@ class Factorlens:
             else:
                 raise Exception('length of user defined layer series does not match length of factor dataframe')
         else:
-            
             buy_df['layer'] = pd.qcut(buy_df['factor'],q=layer_num,labels=False)#[ts_code,close,adj_factor,factor,layer]
             buy_df['layer'] = buy_df['layer'].fillna('null')
 
         
         #加涨停，这里用收盘价是否涨停，因为收盘调仓
-        up_limit_df = self.stk_limit_df.loc[trade_date,['ts_code','up_limit','up_limit_allday']]  
+        up_limit_df = self.stk_limit_df.loc[trade_date,['ts_code','up_limit']]  
         buy_df = pd.merge(left=buy_df,right=up_limit_df,on='ts_code',how='left')
         if trade_method == 'weighted_mean':
-            buy_df = buy_df[buy_df['up_limit_allday']!=1]
+            buy_df = buy_df[buy_df.apply(lambda x:x.low!=x.up_limit,axis=1)]
             buy_df['buy_price'] = buy_df.apply(lambda x:x.amount/x.vol*10,axis=1)
         elif trade_method == 'open_close':
             buy_df = buy_df[buy_df['close']!=buy_df['up_limit']]#踢出收盘价=涨停价
@@ -170,14 +169,14 @@ class Factorlens:
         return buy_df
     
     def _cal_rt_passivehold(self,trade_date,trade_date_next,trade_method):
-        sell_df = self.daily_df.loc[trade_date_next,['ts_code','open','vol','amount']]
+        sell_df = self.daily_df.loc[trade_date_next,['ts_code','open','high','vol','amount']]
         sell_adj_df = self.adj_factor_df.loc[trade_date_next,['ts_code','adj_factor']]
         sell_df = pd.merge(left=sell_df,right=sell_adj_df,on='ts_code',how='inner')
         #加跌停,下一期的收盘价=跌停价的不能在sell_df里
-        down_limit_df = self.stk_limit_df.loc[trade_date_next,['ts_code','down_limit','down_limit_allday']]  
+        down_limit_df = self.stk_limit_df.loc[trade_date_next,['ts_code','down_limit']]  
         sell_df = pd.merge(left=sell_df,right=down_limit_df,on='ts_code',how='left')
         if trade_method == 'weighted_mean':
-            sell_df = sell_df[sell_df['down_limit_allday']!=1]
+            sell_df = sell_df[sell_df.apply(lambda x:x.high!=x.down_limit,axis=1)]
             sell_df['sell_price'] = sell_df.apply(lambda x:x.amount/x.vol*10,axis=1)
         elif trade_method == 'open_close':
             sell_df = sell_df[sell_df['open']!=sell_df['down_limit']]#踢出收盘价=跌停价
@@ -239,7 +238,6 @@ class Factorlens:
             for i in range(len(date_list)-1):             
                 trade_date = date_list[i]
                 trade_date_next = date_list[i+1]
-                print(trade_date)
                 if method == 'buyonlysellable':
                     ...
                     # rt_df = cal_df[pd.notnull(cal_df['nv'])]#筛选出下一期也在里边的
