@@ -106,8 +106,11 @@ class Factorlens:
         
         #记录如果憋手里的话憋了哪些票/持仓占比/憋在了第几层
         self.continuousrotation = continuousrotation
-        self.passivehold = [pd.DataFrame(columns=['ts_code','buy_price','adj_factor','layer','ratio'])\
-                               for i in range(self.continuousrotation)]
+        if self.continuousrotation:
+            self.passivehold = [pd.DataFrame(columns=['ts_code','buy_price','adj_factor','layer','ratio'])\
+                                   for i in range(self.continuousrotation)]
+        else:
+            self.passivehold = pd.DataFrame(columns=['ts_code','buy_price','adj_factor','layer','ratio'])
         
         #metrics and layer return record
         self.metrics_df = pd.DataFrame(columns=['time','trade_date','ic','rankic'])
@@ -115,7 +118,7 @@ class Factorlens:
         selector.close()     
     
     
-    def _cal_layer(self,trade_date,cal_layer_func,layer_num,trade_method,rotation_point):
+    def _cal_layer(self,trade_date,cal_layer_func,layer_num,trade_method,rotation_point=None):
         buy_df = self.daily_df.loc[trade_date,['ts_code','close','low','vol','amount']]
         buy_adj_df = self.adj_factor_df.loc[trade_date,['ts_code','adj_factor']]
         buy_df = pd.merge(left=buy_df,right=buy_adj_df,on='ts_code',how='inner')
@@ -158,7 +161,10 @@ class Factorlens:
             buy_df = buy_df[buy_df['close']!=buy_df['up_limit']]#踢出收盘价=涨停价
             buy_df['buy_price'] = buy_df['close']
         #以下为加入憋手里的部分，并且为每个票附上持仓比例(憋手里的可能和这期新来的平均分的数值不一样)
-        buy_df = pd.concat([buy_df,self.passivehold[rotation_point]],join='outer',ignore_index=True)
+        if self.continuousrotation:
+            buy_df = pd.concat([buy_df,self.passivehold[rotation_point]],join='outer',ignore_index=True)
+        else:
+            buy_df = pd.concat([buy_df,self.passivehold],join='outer',ignore_index=True)
         def cal_ratio(df):
             ratio_sum = 1 - df['ratio'].sum()
             null_cnt = pd.isnull(df['ratio']).sum()
@@ -170,7 +176,7 @@ class Factorlens:
         self.buy_df = buy_df
         return buy_df
     
-    def _cal_rt_passivehold(self,trade_date,trade_date_next,trade_method,rotation_point):
+    def _cal_rt_passivehold(self,trade_date,trade_date_next,trade_method,rotation_point=None):
         sell_df = self.daily_df.loc[trade_date_next,['ts_code','open','high','vol','amount']]
         sell_adj_df = self.adj_factor_df.loc[trade_date_next,['ts_code','adj_factor']]
         sell_df = pd.merge(left=sell_df,right=sell_adj_df,on='ts_code',how='inner')
@@ -185,10 +191,13 @@ class Factorlens:
             sell_df['sell_price'] = sell_df['open']
         self.sell_df = sell_df
 
-        
         cal_df = pd.merge(left=self.buy_df,right=self.sell_df,on='ts_code',how='left',suffixes=('','_sell'))
-        self.passivehold[rotation_point] = cal_df[pd.isnull(cal_df['sell_price'])][['ts_code','buy_price','adj_factor','layer','ratio']]
         
+        if self.continuousrotation:
+            self.passivehold[rotation_point] = cal_df[pd.isnull(cal_df['sell_price'])][['ts_code','buy_price','adj_factor','layer','ratio']]
+        else:
+            self.passivehold = cal_df[pd.isnull(cal_df['sell_price'])][['ts_code','buy_price','adj_factor','layer','ratio']]
+            
         cal_df['sell_price_adj'] = cal_df.apply(lambda x: x['sell_price']*x['adj_factor_sell']/x['adj_factor']\
                                                 if pd.notnull(x['sell_price']) else x['buy_price'], axis=1)
         #加退市,退市的close_sell_adj=0 
@@ -228,7 +237,7 @@ class Factorlens:
         assert method in ('buyonlysellable','holdinlayer'),'invalid method' #加上憋手里的回测方式
         assert trade_method in ('weighted_mean','open_close'),'invalid method' #加上憋手里的回测方式
         selector = Selector()
-        if not self.continuousrotation:
+        if self.continuousrotation == None:
             for i in range(0,len(self.date_list)-1,step_size):
                 #以下为mysql to memory读取流
                 date_list = self.date_list[i:i+step_size+1]
@@ -244,12 +253,6 @@ class Factorlens:
                     trade_date_next = date_list[i+1]
                     if method == 'buyonlysellable':
                         ...
-                        # rt_df = cal_df[pd.notnull(cal_df['nv'])]#筛选出下一期也在里边的
-                        # ic,rankic = self._cal_ic(rt_df)
-                        # layerrt = self._cal_layerrt(rt_df,keep_null)
-                        # layerrt['trade_date'] = trade_date_next
-                        # self.metrics_df = self.metrics_df.append({'trade_date':trade_date_next,'ic':ic,'rankic':rankic},ignore_index=True)
-                        # self.layerrt_df = self.layerrt_df.append(layerrt,ignore_index=True)
                     
                     elif method == 'holdinlayer':
                         
@@ -283,12 +286,6 @@ class Factorlens:
                         trade_date_next = date_list_rotation[adjust_point+1]
                         if method == 'buyonlysellable':
                             ...
-                            # rt_df = cal_df[pd.notnull(cal_df['nv'])]#筛选出下一期也在里边的
-                            # ic,rankic = self._cal_ic(rt_df)
-                            # layerrt = self._cal_layerrt(rt_df,keep_null)
-                            # layerrt['trade_date'] = trade_date_next
-                            # self.metrics_df = self.metrics_df.append({'trade_date':trade_date_next,'ic':ic,'rankic':rankic},ignore_index=True)
-                            # self.layerrt_df = self.layerrt_df.append(layerrt,ignore_index=True)
                         
                         elif method == 'holdinlayer':
                             
@@ -309,9 +306,13 @@ class Factorlens:
             df['cumnv'] = df['nv'].cumprod()
             return df
         
-        self.layert_df_draw = self.layerrt_df.groupby(by=['time','layer'])\
-            .agg({'nv':'mean','trade_date':'min'}).reset_index()
+        if self.continuousrotation:
+            self.layert_df_draw = self.layerrt_df.groupby(by=['time','layer'])\
+                .agg({'nv':'mean','trade_date':'min'}).reset_index()
+        else:
+            self.layert_df_draw = self.layerrt_df        
         self.layert_df_draw = self.layert_df_draw.groupby(by='layer').apply(cal_cumnv).reset_index(drop=True)
+
         
         selector.close()
         return self.metrics_df,self.layerrt_df
