@@ -19,7 +19,7 @@ warnings.filterwarnings('ignore')#warning from draw() 懒得管了
 class Factorlens:
     
     def __init__(self,factor_name,factor_df,stock_pool=None,newlist_delay=180,
-                 ignore_level ='*ST',last_date=None):
+                 ignore_level ='*ST',last_date=None,continuousrotation=None):
         for col in ('ts_code','factor_date','factor'):
             assert col in factor_df.columns,f'missing column {col} in factor_df'
         selector = Selector()
@@ -105,15 +105,17 @@ class Factorlens:
         self.factor_df.set_index('nexttrade_date',inplace=True)
         
         #记录如果憋手里的话憋了哪些票/持仓占比/憋在了第几层
-        self.passivehold_df = pd.DataFrame(columns=['ts_code','buy_price','adj_factor','layer','ratio'])
+        self.continuousrotation = continuousrotation
+        self.passivehold = [pd.DataFrame(columns=['ts_code','buy_price','adj_factor','layer','ratio'])\
+                               for i in range(self.continuousrotation)]
         
         #metrics and layer return record
-        self.metrics_df = pd.DataFrame(columns=['trade_date','ic','rankic'])
-        self.layerrt_df = pd.DataFrame(columns=['trade_date','layer','rt','nv'])
+        self.metrics_df = pd.DataFrame(columns=['time','trade_date','ic','rankic'])
+        self.layerrt_df = pd.DataFrame(columns=['time','trade_date','layer','rt','nv'])
         selector.close()     
     
     
-    def _cal_layer(self,trade_date,cal_layer_func,layer_num,trade_method):
+    def _cal_layer(self,trade_date,cal_layer_func,layer_num,trade_method,rotation_point):
         buy_df = self.daily_df.loc[trade_date,['ts_code','close','low','vol','amount']]
         buy_adj_df = self.adj_factor_df.loc[trade_date,['ts_code','adj_factor']]
         buy_df = pd.merge(left=buy_df,right=buy_adj_df,on='ts_code',how='inner')
@@ -142,7 +144,7 @@ class Factorlens:
             else:
                 raise Exception('length of user defined layer series does not match length of factor dataframe')
         else:
-            buy_df['layer'] = pd.qcut(buy_df['factor'],q=layer_num,labels=False)#[ts_code,close,adj_factor,factor,layer]
+            buy_df['layer'] = pd.qcut(buy_df['factor'].rank(method='first'),q=layer_num,labels=False)#[ts_code,close,adj_factor,factor,layer]
             buy_df['layer'] = buy_df['layer'].fillna('null')
 
         
@@ -156,7 +158,7 @@ class Factorlens:
             buy_df = buy_df[buy_df['close']!=buy_df['up_limit']]#踢出收盘价=涨停价
             buy_df['buy_price'] = buy_df['close']
         #以下为加入憋手里的部分，并且为每个票附上持仓比例(憋手里的可能和这期新来的平均分的数值不一样)
-        buy_df = pd.concat([buy_df,self.passivehold_df],join='outer',ignore_index=True)
+        buy_df = pd.concat([buy_df,self.passivehold[rotation_point]],join='outer',ignore_index=True)
         def cal_ratio(df):
             ratio_sum = 1 - df['ratio'].sum()
             null_cnt = pd.isnull(df['ratio']).sum()
@@ -168,7 +170,7 @@ class Factorlens:
         self.buy_df = buy_df
         return buy_df
     
-    def _cal_rt_passivehold(self,trade_date,trade_date_next,trade_method):
+    def _cal_rt_passivehold(self,trade_date,trade_date_next,trade_method,rotation_point):
         sell_df = self.daily_df.loc[trade_date_next,['ts_code','open','high','vol','amount']]
         sell_adj_df = self.adj_factor_df.loc[trade_date_next,['ts_code','adj_factor']]
         sell_df = pd.merge(left=sell_df,right=sell_adj_df,on='ts_code',how='inner')
@@ -185,7 +187,7 @@ class Factorlens:
 
         
         cal_df = pd.merge(left=self.buy_df,right=self.sell_df,on='ts_code',how='left',suffixes=('','_sell'))
-        self.passivehold_df = cal_df[pd.isnull(cal_df['sell_price'])][['ts_code','buy_price','adj_factor','layer','ratio']]
+        self.passivehold[rotation_point] = cal_df[pd.isnull(cal_df['sell_price'])][['ts_code','buy_price','adj_factor','layer','ratio']]
         
         cal_df['sell_price_adj'] = cal_df.apply(lambda x: x['sell_price']*x['adj_factor_sell']/x['adj_factor']\
                                                 if pd.notnull(x['sell_price']) else x['buy_price'], axis=1)
@@ -219,54 +221,100 @@ class Factorlens:
         cal_df['nv_ratio'] = cal_df['nv'] * cal_df['ratio']  
         layer_rt = cal_df.groupby(by='layer').agg({'rt_ratio':'sum','nv_ratio':'sum'}).reset_index()
         return layer_rt.rename(columns={'rt_ratio':'rt','nv_ratio':'nv'})
+
     
     def backtest(self,method='buyonlysellable',trade_method ='weighted_mean',
                  cal_layer_func=None,layer_num=10,keep_null=False,step_size=12):    
         assert method in ('buyonlysellable','holdinlayer'),'invalid method' #加上憋手里的回测方式
         assert trade_method in ('weighted_mean','open_close'),'invalid method' #加上憋手里的回测方式
         selector = Selector()
-        for i in range(0,len(self.date_list)-1,step_size):
-            #以下为mysql to memory读取流
-            date_list = self.date_list[i:i+step_size+1]
-            self.daily_df = selector.daily(date_list = date_list,stock_pool=self.stock_pool)
-            self.adj_factor_df = selector.adj_factor(date_list = date_list,stock_pool=self.stock_pool)
-            self.stk_limit_df = selector.stk_limit(date_list = date_list,stock_pool=self.stock_pool)
-            self.daily_df.set_index('trade_date',inplace=True)
-            self.adj_factor_df.set_index('trade_date',inplace=True)
-            self.stk_limit_df.set_index('trade_date',inplace=True)
-            #以下为每个调仓日分层并结算下一期收益and计算憋手里等等琐事
-            for i in range(len(date_list)-1):             
-                trade_date = date_list[i]
-                trade_date_next = date_list[i+1]
-                if method == 'buyonlysellable':
-                    ...
-                    # rt_df = cal_df[pd.notnull(cal_df['nv'])]#筛选出下一期也在里边的
-                    # ic,rankic = self._cal_ic(rt_df)
-                    # layerrt = self._cal_layerrt(rt_df,keep_null)
-                    # layerrt['trade_date'] = trade_date_next
-                    # self.metrics_df = self.metrics_df.append({'trade_date':trade_date_next,'ic':ic,'rankic':rankic},ignore_index=True)
-                    # self.layerrt_df = self.layerrt_df.append(layerrt,ignore_index=True)
-                
-                elif method == 'holdinlayer':
+        if not self.continuousrotation:
+            for i in range(0,len(self.date_list)-1,step_size):
+                #以下为mysql to memory读取流
+                date_list = self.date_list[i:i+step_size+1]
+                self.daily_df = selector.daily(date_list = date_list,stock_pool=self.stock_pool)
+                self.adj_factor_df = selector.adj_factor(date_list = date_list,stock_pool=self.stock_pool)
+                self.stk_limit_df = selector.stk_limit(date_list = date_list,stock_pool=self.stock_pool)
+                self.daily_df.set_index('trade_date',inplace=True)
+                self.adj_factor_df.set_index('trade_date',inplace=True)
+                self.stk_limit_df.set_index('trade_date',inplace=True)
+                #以下为每个调仓日分层并结算下一期收益and计算憋手里等等琐事
+                for i in range(len(date_list)-1):             
+                    trade_date = date_list[i]
+                    trade_date_next = date_list[i+1]
+                    if method == 'buyonlysellable':
+                        ...
+                        # rt_df = cal_df[pd.notnull(cal_df['nv'])]#筛选出下一期也在里边的
+                        # ic,rankic = self._cal_ic(rt_df)
+                        # layerrt = self._cal_layerrt(rt_df,keep_null)
+                        # layerrt['trade_date'] = trade_date_next
+                        # self.metrics_df = self.metrics_df.append({'trade_date':trade_date_next,'ic':ic,'rankic':rankic},ignore_index=True)
+                        # self.layerrt_df = self.layerrt_df.append(layerrt,ignore_index=True)
                     
-                    self._cal_layer(trade_date,cal_layer_func,layer_num,trade_method)
-                    cal_df = self._cal_rt_passivehold(trade_date,trade_date_next,trade_method)
-                    ic,rankic = self._cal_ic(cal_df)
-                    layerrt = self._cal_layerrt(cal_df,keep_null)
-                    layerrt['trade_date'] = trade_date_next
-                    self.metrics_df = pd.concat([self.metrics_df,pd.DataFrame({'trade_date':[trade_date_next],
-                                               'ic':[ic],'rankic':[rankic]})],ignore_index=True)
-
-                    self.layerrt_df = pd.concat([self.layerrt_df,layerrt],ignore_index=True)
-
+                    elif method == 'holdinlayer':
+                        
+                        self._cal_layer(trade_date,cal_layer_func,layer_num,trade_method)
+                        cal_df = self._cal_rt_passivehold(trade_date,trade_date_next,trade_method)
+                        ic,rankic = self._cal_ic(cal_df)
+                        layerrt = self._cal_layerrt(cal_df,keep_null)
+                        layerrt['trade_date'] = trade_date_next
+                        self.metrics_df = pd.concat([self.metrics_df,pd.DataFrame({'trade_date':[trade_date_next],
+                                                   'ic':[ic],'rankic':[rankic]})],ignore_index=True)
+    
+                        self.layerrt_df = pd.concat([self.layerrt_df,layerrt],ignore_index=True)
+        else:
+            date_list_len = int(len(self.date_list)/self.continuousrotation)*self.continuousrotation
+            date_list_int = self.date_list[:date_list_len]
+            for query_date_point in range(0,len(date_list_int)-self.continuousrotation,step_size*self.continuousrotation):
+                
+                date_list = date_list_int[query_date_point:query_date_point+(step_size+1)*self.continuousrotation]
+                #以下为mysql to memory读取流
+                self.daily_df = selector.daily(start_date=date_list[0],end_date=date_list[-1],stock_pool=self.stock_pool)
+                self.adj_factor_df = selector.adj_factor(start_date=date_list[0],end_date=date_list[-1],stock_pool=self.stock_pool)
+                self.stk_limit_df = selector.stk_limit(start_date=date_list[0],end_date=date_list[-1],stock_pool=self.stock_pool)
+                self.daily_df.set_index('trade_date',inplace=True)
+                self.adj_factor_df.set_index('trade_date',inplace=True)
+                self.stk_limit_df.set_index('trade_date',inplace=True)
+                #以下为每个调仓日分层并结算下一期收益and计算憋手里等等琐事
+                for rotation_point in range(self.continuousrotation):
+                    date_list_rotation = [date for i,date in enumerate(date_list) if i%self.continuousrotation == rotation_point]
+                    for adjust_point in range(len(date_list_rotation)-1):   
+                        trade_date = date_list_rotation[adjust_point]
+                        trade_date_next = date_list_rotation[adjust_point+1]
+                        if method == 'buyonlysellable':
+                            ...
+                            # rt_df = cal_df[pd.notnull(cal_df['nv'])]#筛选出下一期也在里边的
+                            # ic,rankic = self._cal_ic(rt_df)
+                            # layerrt = self._cal_layerrt(rt_df,keep_null)
+                            # layerrt['trade_date'] = trade_date_next
+                            # self.metrics_df = self.metrics_df.append({'trade_date':trade_date_next,'ic':ic,'rankic':rankic},ignore_index=True)
+                            # self.layerrt_df = self.layerrt_df.append(layerrt,ignore_index=True)
+                        
+                        elif method == 'holdinlayer':
+                            
+                            self._cal_layer(trade_date,cal_layer_func,layer_num,trade_method,rotation_point)
+                            cal_df = self._cal_rt_passivehold(trade_date,trade_date_next,trade_method,rotation_point)
+                            ic,rankic = self._cal_ic(cal_df)
+                            layerrt = self._cal_layerrt(cal_df,keep_null)
+                            layerrt['trade_date'] = trade_date_next
+                            layerrt['time'] = query_date_point+adjust_point
+                            self.metrics_df = pd.concat([self.metrics_df,pd.DataFrame({'time':[query_date_point+adjust_point],
+                                                       'trade_date':[trade_date_next],'ic':[ic],'rankic':[rankic]})],ignore_index=True)
         
-        selector.close()
+                            self.layerrt_df = pd.concat([self.layerrt_df,layerrt],ignore_index=True)
+
         
         def cal_cumnv(df):
             df = df.sort_values(by='trade_date')
             df['cumnv'] = df['nv'].cumprod()
             return df
-        self.layerrt_df = self.layerrt_df.groupby(by='layer').apply(cal_cumnv)
+        
+        self.layert_df_draw = self.layerrt_df.groupby(by=['time','layer'])\
+            .agg({'nv':'mean','trade_date':'min'}).reset_index()
+        self.layert_df_draw = self.layert_df_draw.groupby(by='layer').apply(cal_cumnv).reset_index(drop=True)
+        
+        selector.close()
+        return self.metrics_df,self.layerrt_df
         
     def draw(self,path=None):
         # return self.layerrt_df
@@ -285,14 +333,18 @@ class Factorlens:
         
         figure.subplots_adjust(hspace=0.5)
         
-        for group_num in self.layerrt_df.layer.unique():
-            axes3.plot(self.layerrt_df.trade_date.unique().astype(int).astype(str),
-                        self.layerrt_df[self.layerrt_df['layer']==group_num]['cumnv'],label=f'group_{group_num}')
-        axes3.set_xticklabels(self.layerrt_df.trade_date.unique().astype(int).astype(str),rotation=45,size=5)
+        
+        
+
+        
+        for group_num in self.layert_df_draw.layer.unique():
+            axes3.plot(self.layert_df_draw.trade_date.unique().astype(int).astype(str),
+                        self.layert_df_draw[self.layert_df_draw['layer']==group_num]['cumnv'],label=f'group_{group_num}')
+        axes3.set_xticklabels(self.layert_df_draw.trade_date.unique().astype(int).astype(str),rotation=45,size=5)
         axes3.legend(loc=2,prop = {'size':5})
         
         plt.title(f'Factor:{self.factor_name}')
         if not path:
             path = f'./{self.factor_name}.png'
         plt.savefig(path,dpi=300)
-        return self.metrics_df,self.layerrt_df
+        return self.metrics_df,self.layert_df_draw
