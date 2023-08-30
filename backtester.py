@@ -343,6 +343,7 @@ class Context(ABC):
                                  self.today_delist)
             self.account.delist()
             self.account.dividend()
+            self.beforeopen()
             self.handlebar()
             self.account.updateprice()
             
