@@ -10,18 +10,20 @@ import pandas as pd
 import numpy as np
 
 def cal_annrt(netvaluelist,datelist):
+    length = len(datelist)
     startdatetime = datetime.datetime.strptime(str(datelist[0]), '%Y%m%d')
-    enddatetime = datetime.datetime.strptime(str(datelist[-1]), '%Y%m%d')
+    enddatetime = datetime.datetime.strptime(str(datelist[length-1]), '%Y%m%d')
     years = (enddatetime-startdatetime).days/365
-    annrt = netvaluelist[-1]**(1/years)-1
+    annrt = netvaluelist[length-1]**(1/years)-1
     return annrt * 100
 
 
 def cal_ann_excessrt(netvaluelist,indexvaluelist,datelist):
+    length = len(datelist)
     startdatetime = datetime.datetime.strptime(str(datelist[0]), '%Y%m%d')
-    enddatetime = datetime.datetime.strptime(str(datelist[-1]), '%Y%m%d')
+    enddatetime = datetime.datetime.strptime(str(datelist[length-1]), '%Y%m%d')
     years = (enddatetime-startdatetime).days/365
-    ann_excessrt = ((netvaluelist[-1]/netvaluelist[0])/(indexvaluelist[-1]/indexvaluelist[0]))**(1/years)-1
+    ann_excessrt = ((netvaluelist[length-1]/netvaluelist[0])/(indexvaluelist[length-1]/indexvaluelist[0]))**(1/years)-1
     return ann_excessrt *100
 
 

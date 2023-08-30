@@ -12,10 +12,10 @@ import numpy as np
 import datetime
 from abc import ABC,abstractclassmethod
 from matplotlib import pyplot as plt
+
 plt.rcParams["font.sans-serif"]=["SimHei"]
 plt.rcParams["axes.unicode_minus"]=False
 
-import time
 
 class Recorder:
     def __init__(self,ts_code,share,direction,indate,inprice,outdate,outprice):
@@ -32,33 +32,65 @@ class Recorder:
 
 class Position:
 
-    def __init__(self,ts_code,share):
+    def __init__(self,ts_code,share,avgprice):
         #init的过程就是原来持仓没这个票，持仓append这个票
-        self.ts_code = ts_code
-        self.share = share
-        self.divshare = 0
-        self.divcash = 0
-        self.allshare = self.share + self.divshare
-    
+        self._ts_code = ts_code
+        self._share = share
+        self._divshare = 0
+        self._divcash = 0
+        self._allshare = self._share + self._divshare
+        self._lastprice = avgprice
+        self._netvalue = self._allshare * self._lastprice + self._divcash
+        
     def updateprice(self,price):
-        self.lastprice = price
-    
+        self._lastprice = price
+        self._netvalue = self._allshare * self._lastprice + self._divcash
+        
     def div_exdate(self,stk_div,cash_div):
-        self.divshare = self.share * stk_div
-        self.allshare = self.share + self.divshare
-        self.divcash = self.share * cash_div
+        self._divshare = self._share * stk_div
+        self._allshare = self._share + self.divshare
+        self._divcash = self._share * cash_div
         
     def div_listdate(self):
-        self.share += self.divshare
-        self.divshare = 0
-        self.allshare = self.share + self.divshare
+        self._share += self._divshare
+        self._divshare = 0
         
     def div_paydate(self):
-        divcash = self.divcash
-        self.divcash = 0
+        divcash = self._divcash
+        self._divcash = 0
         return divcash
-
-            
+    
+    @property
+    def share(self):
+        return self._share
+    
+    @property
+    def allshare(self):
+        return self._allshare
+    
+    @property 
+    def divshare(self):
+        return self._divshare
+    
+    @property
+    def divcash(self):
+        return self._divcash
+    
+    @property
+    def lastprice(self):
+        return self._lastprice 
+    
+    @property
+    def netvalue(self):
+        return self._netvalue
+       
+    @share.setter
+    def share(self,new_value):
+        diff = new_value - self._share
+        self._share += diff
+        self._allshare += diff
+ 
+           
 class Account:
     
     def __init__(self,startcash,tax,fee):
@@ -70,7 +102,7 @@ class Account:
         self.netvalue = self.cash + self.portfoliovalue
 
     
-    #盘中
+    #----------------------------------------------------------------------盘中
     def order_percent(self,ts_code,ratio):
         if ts_code not in self.today_pool.index:
             return
@@ -83,12 +115,10 @@ class Account:
                 buycost = buyshare * avgprice * (1+self.fee)
                 if self.cash>=buycost:
                     self.portfolio[ts_code].share += buyshare
-                    self.portfolio[ts_code].allshare += buyshare
                     self.cash -= buycost
                 else:
                     buyshare = self.cash/avgprice/(1+self.fee)
                     self.portfolio[ts_code].share += buyshare
-                    self.portfolio[ts_code].allshare += buyshare
                     self.cash = 0.0
                     
             elif diffshare <0.0 and self.today_pool.loc[ts_code].high!=self.today_pool.loc[ts_code].down_limit:
@@ -98,25 +128,23 @@ class Account:
                     sellshare = self.portfolio[ts_code].share
                     sellrevenue = self.portfolio[ts_code].share * avgprice
                     self.portfolio[ts_code].share -= sellshare
-                    self.portfolio[ts_code].allshare -= sellshare
                     self.cash += sellrevenue*(1-self.tax-self.fee)
                 else:
                 
                     sellrevenue = sellshare *avgprice
                     self.cash += sellrevenue*(1-self.tax-self.fee)
                     self.portfolio[ts_code].share -= sellshare
-                    self.portfolio[ts_code].allshare -= sellshare
 
         else:
             if self.today_pool.loc[ts_code].low!= self.today_pool.loc[ts_code].up_limit:
                 buyshare= targetshare
                 buycost = buyshare * avgprice * (1+self.fee)
                 if self.cash>=buycost:
-                    self.portfolio[ts_code] = Position(ts_code,buyshare)
+                    self.portfolio[ts_code] = Position(ts_code,buyshare,avgprice)
                     self.cash -= buycost
                 else:
                     buyshare = self.cash/avgprice/(1+self.fee)
-                    self.portfolio[ts_code] = Position(ts_code,buyshare)
+                    self.portfolio[ts_code] = Position(ts_code,buyshare,avgprice)
                     self.cash = 0.0
      
                     
@@ -130,12 +158,10 @@ class Account:
                 buycost = money * (1+self.fee)
                 if self.cash>= buycost:
                     self.portfolio[ts_code].share += buyshare
-                    self.portfolio[ts_code].allshare += buyshare
                     self.cash -= buycost
                 else:
                     buyshare = self.cash/avgprice/(1+self.fee)
                     self.portfolio[ts_code].share += buyshare
-                    self.portfolio[ts_code].allshare += buyshare
                     self.cash = 0.0
             elif money<0.0 and self.today_pool.loc[ts_code].high!=self.today_pool.loc[ts_code].down_limit:
                 sellshare = -money/avgprice
@@ -144,33 +170,29 @@ class Account:
                     sellshare = self.portfolio[ts_code].share
                     sellrevenue = self.portfolio[ts_code].share * avgprice
                     self.portfolio[ts_code].share -= sellshare
-                    self.portfolio[ts_code].allshare -= sellshare
                     self.cash += sellrevenue*(1-self.tax-self.fee)
                 else:
                     self.cash += sellrevenue*(1-self.tax-self.fee)
                     self.portfolio[ts_code].share -= sellshare
-                    self.portfolio[ts_code].allshare -= sellshare
         else:
             if self.today_pool.loc[ts_code].low!= self.today_pool.loc[ts_code].up_limit:
                 buyshare = money/avgprice
                 buycost = money * (1+self.fee)
                 if self.cash>=buycost:
-                    self.portfolio[ts_code] = Position(ts_code,buyshare)
+                    self.portfolio[ts_code] = Position(ts_code,buyshare,avgprice)
                     self.cash -= buycost
                 else:
                     buyshare = self.cash.avgprice/(1+self.fee)
                     self.portfolio[ts_code].share += buyshare
-                    self.portfolio[ts_code].allshare += buyshare
                     self.cash = 0.0
                 
                     
-    #盘后
+    #----------------------------------------------------------------------盘后
     def updateprice(self):
         for ts_code in self.portfolio:
             if ts_code in self.today_pool.index:
                 self.portfolio[ts_code].updateprice(self.today_pool.loc[ts_code].close)
-        self.portfoliovalue = sum([position.allshare*position.lastprice+position.divcash\
-                                   for ts_code,position in self.portfolio.items()])
+        self.portfoliovalue = sum([position.netvalue for ts_code,position in self.portfolio.items()])
         self.netvalue = self.cash + self.portfoliovalue
         
         portfolio_list = list(self.portfolio.keys())
@@ -179,7 +201,7 @@ class Account:
                 #如果能卖光就删除这个position
                 self.portfolio.pop(ts_code)
         
-    #盘前
+    #----------------------------------------------------------------------盘前
     def nextday(self,nextday,today_pool,today_exdate_df,today_div_listdate_df,
                 today_pay_date_df,today_delist):
         self.date = nextday
@@ -196,10 +218,7 @@ class Account:
             if len(self.today_delist)>0:
                 for ts_code in portfolio_list:
                     if ts_code in self.today_delist.ts_code:
-                        delistnetvalue = self.portfolio[ts_code].last*self.portfolio[ts_code].allshare\
-                                            +self.portfolio[ts_code].divcash
-                                        
-                        self.netvalue -= delistnetvalue
+                        self.netvalue -= self.portfolio[ts_code].netvalue
                         self.portfolio.pop(ts_code)
 
         
