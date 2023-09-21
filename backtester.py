@@ -89,7 +89,24 @@ class Position:
         diff = new_value - self._share
         self._share += diff
         self._allshare += diff
- 
+    
+    def __str__(self):
+        description = f'''
+ts_code:{self._ts_code}|share:{self._share}
+divshare:{self._divshare}|divcash:{self._divcash}
+allshare:{self._allshare}|lastprice:{self._lastprice}
+netvalue:{self._netvalue}'''
+        return description
+    
+    def __repr__(self):
+        description = f'''
+ts_code:{self._ts_code}|share:{self._share}
+divshare:{self._divshare}|divcash:{self._divcash}
+allshare:{self._allshare}|lastprice:{self._lastprice}
+netvalue:{self._netvalue}
+'''
+        return description
+
            
 class Account:
     
@@ -230,6 +247,7 @@ class Account:
                                         on='ts_code',how='inner')
                 for index,row in exdate_df.iterrows():
                     self.portfolio[row.ts_code].div_exdate(row.stk_div,row.cash_div)
+
             
             if len(self.today_div_listdate_df)>=0:
                 div_listdate_df = pd.merge(left=self.today_div_listdate_df,right=pd.DataFrame({'ts_code':portfolio_list}),
