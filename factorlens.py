@@ -334,10 +334,6 @@ class Factorlens:
         
         figure.subplots_adjust(hspace=0.5)
         
-        
-        
-
-        
         for group_num in self.layert_df_draw.layer.unique():
             axes3.plot(self.layert_df_draw.trade_date.unique().astype(int).astype(str),
                         self.layert_df_draw[self.layert_df_draw['layer']==group_num]['cumnv'],label=f'group_{group_num}')
