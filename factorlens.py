@@ -142,8 +142,9 @@ class Factorlens:
         if cal_layer_func:#不是lambda x的函数，是直接传入一个seriresz，再自己返回一个series，操作空间大
             layer_series = cal_layer_func(buy_df['factor'])
             if len(layer_series) == len(buy_df):
-                buy_df['layer'] = cal_layer_func(buy_df['factor']).astype(str)
+                buy_df['layer'] = cal_layer_func(buy_df['factor'])
                 buy_df['layer'] = buy_df['layer'].fillna('null')
+                buy_df['layer'] = buy_df['layer'].astype(str)
             else:
                 raise Exception('length of user defined layer series does not match length of factor dataframe')
         else:
@@ -300,18 +301,26 @@ class Factorlens:
         
                             self.layerrt_df = pd.concat([self.layerrt_df,layerrt],ignore_index=True)
 
-        
         def cal_cumnv(df):
             df = df.sort_values(by='trade_date')
             df['cumnv'] = df['nv'].cumprod()
             return df
         
         if self.continuousrotation:
-            self.layert_df_draw = self.layerrt_df.groupby(by=['time','layer'])\
+            self.layerrt_df_draw = self.layerrt_df.groupby(by=['time','layer'])\
                 .agg({'nv':'mean','trade_date':'min'}).reset_index()
         else:
-            self.layert_df_draw = self.layerrt_df        
-        self.layert_df_draw = self.layert_df_draw.groupby(by='layer').apply(cal_cumnv).reset_index(drop=True)
+            self.layerrt_df_draw = self.layerrt_df
+        
+        trade_date_unique = pd.DataFrame({'trade_date':self.layerrt_df_draw.trade_date.unique()})
+        trade_date_unique['Cartesian'] = 1
+        layer_unique = pd.DataFrame({'layer':self.layerrt_df_draw.layer.unique()})
+        layer_unique['Cartesian'] = 1
+        full_points_draw = pd.merge(left=trade_date_unique,right=layer_unique,on='Cartesian',how='left')
+        self.layerrt_df_draw = pd.merge(left=full_points_draw,right=self.layerrt_df_draw,
+                                       on=['trade_date','layer'],how='left')
+        self.layerrt_df_draw['nv'] = self.layerrt_df_draw['nv'].fillna(1.0)
+        self.layerrt_df_draw = self.layerrt_df_draw.groupby(by='layer').apply(cal_cumnv).reset_index(drop=True)
 
         
         selector.close()
@@ -335,17 +344,14 @@ class Factorlens:
         figure.subplots_adjust(hspace=0.5)
         
         
-        
-
-        
-        for group_num in self.layert_df_draw.layer.unique():
-            axes3.plot(self.layert_df_draw.trade_date.unique().astype(int).astype(str),
-                        self.layert_df_draw[self.layert_df_draw['layer']==group_num]['cumnv'],label=f'group_{group_num}')
-        axes3.set_xticklabels(self.layert_df_draw.trade_date.unique().astype(int).astype(str),rotation=45,size=5)
+        for group_num in self.layerrt_df_draw.layer.unique():
+            axes3.plot(self.layerrt_df_draw.trade_date.unique().astype(int).astype(str),
+                        self.layerrt_df_draw[self.layerrt_df_draw['layer']==group_num]['cumnv'],label=f'group_{group_num}')
+        axes3.set_xticklabels(self.layerrt_df_draw.trade_date.unique().astype(int).astype(str),rotation=45,size=5)
         axes3.legend(loc=2,prop = {'size':5})
         
         plt.title(f'Factor:{self.factor_name}')
         if not path:
             path = f'./{self.factor_name}.png'
         plt.savefig(path,dpi=300)
-        return self.metrics_df,self.layert_df_draw
+        return self.metrics_df,self.layerrt_df_draw
