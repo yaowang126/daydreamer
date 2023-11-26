@@ -307,11 +307,11 @@ class Factorlens:
             return df
         
         if self.continuousrotation:
-            self.layert_df_draw = self.layerrt_df.groupby(by=['time','layer'])\
+            self.layerrt_df_draw = self.layerrt_df.groupby(by=['time','layer'])\
                 .agg({'nv':'mean','trade_date':'min'}).reset_index()
         else:
-            self.layert_df_draw = self.layerrt_df        
-        self.layert_df_draw = self.layert_df_draw.groupby(by='layer').apply(cal_cumnv).reset_index(drop=True)
+            self.layerrt_df_draw = self.layerrt_df        
+        self.layerrt_df_draw = self.layerrt_df_draw.groupby(by='layer').apply(cal_cumnv).reset_index(drop=True)
 
         
         selector.close()
@@ -334,14 +334,14 @@ class Factorlens:
         
         figure.subplots_adjust(hspace=0.5)
         
-        for group_num in self.layert_df_draw.layer.unique():
-            axes3.plot(self.layert_df_draw.trade_date.unique().astype(int).astype(str),
-                        self.layert_df_draw[self.layert_df_draw['layer']==group_num]['cumnv'],label=f'group_{group_num}')
-        axes3.set_xticklabels(self.layert_df_draw.trade_date.unique().astype(int).astype(str),rotation=45,size=5)
+        for group_num in self.layerrt_df_draw.layer.unique():
+            axes3.plot(self.layerrt_df_draw.trade_date.unique().astype(int).astype(str),
+                        self.layerrt_df_draw[self.layerrt_df_draw['layer']==group_num]['cumnv'],label=f'group_{group_num}')
+        axes3.set_xticklabels(self.layerrt_df_draw.trade_date.unique().astype(int).astype(str),rotation=45,size=5)
         axes3.legend(loc=2,prop = {'size':5})
         
         plt.title(f'Factor:{self.factor_name}')
         if not path:
             path = f'./{self.factor_name}.png'
         plt.savefig(path,dpi=300)
-        return self.metrics_df,self.layert_df_draw
+        return self.metrics_df,self.layerrt_df_draw
