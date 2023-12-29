@@ -62,7 +62,8 @@ class SQL():
         cursor.execute(query)
         res = cursor.fetchall()
         col = [item[0] for item in cursor.description]
-        df = pd.DataFrame(res, columns=col)       
+        df = pd.DataFrame(res, columns=col)
+        self.connect.commit()
         cursor.close()
         
         for i,col in enumerate(df.columns):

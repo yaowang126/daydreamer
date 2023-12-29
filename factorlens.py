@@ -27,7 +27,7 @@ class Factorlens:
             self.stock_pool = stock_pool
         else:
             self.stock_pool = factor_df['ts_code'].unique().tolist()
-            
+            print(len(self.stock_pool))
         self.stock_basic = selector.stock_basic(stock_pool=self.stock_pool)
         
         self.stock_delist = self.stock_basic[self.stock_basic['list_status'] =='D'][['ts_code','delist_date']]
@@ -38,16 +38,15 @@ class Factorlens:
         self.factor_name = factor_name
         #build for rt_df calculation
         self.factor_date_list = factor_df.factor_date.unique().tolist()
-        self.trade_cal = selector.trade_cal(start_date=20000000, 
-                                                 end_date=30000000)
- 
+        self.trade_cal = selector.trade_cal(start_date=0, 
+                                                 end_date=30000000).iloc[1:-2]
+        self.trade_cal[['pretrade_date','nexttrade_date']] = self.trade_cal[['pretrade_date','nexttrade_date']].astype(int)
         #此部分为用所有因子日的下一个交易日算出所有调仓日
 
         trade_date_df = pd.merge(left=pd.DataFrame({'factor_date':self.factor_date_list}),
                                  right=self.trade_cal,left_on='factor_date',
                                  right_on='cal_date',how='left')
         self.date_list = trade_date_df.nexttrade_date.unique().tolist()
-        
         #此为加上新股可被交易的日期
         if newlist_delay:
             def cal_newlist_startdate(newlist_date,newlist_delay):
@@ -142,8 +141,9 @@ class Factorlens:
         if cal_layer_func:#不是lambda x的函数，是直接传入一个seriresz，再自己返回一个series，操作空间大
             layer_series = cal_layer_func(buy_df['factor'])
             if len(layer_series) == len(buy_df):
-                buy_df['layer'] = cal_layer_func(buy_df['factor']).astype(str)
+                buy_df['layer'] = cal_layer_func(buy_df['factor'])
                 buy_df['layer'] = buy_df['layer'].fillna('null')
+                buy_df['layer'] = buy_df['layer'].astype(str)
             else:
                 raise Exception('length of user defined layer series does not match length of factor dataframe')
         else:
@@ -300,7 +300,6 @@ class Factorlens:
         
                             self.layerrt_df = pd.concat([self.layerrt_df,layerrt],ignore_index=True)
 
-        
         def cal_cumnv(df):
             df = df.sort_values(by='trade_date')
             df['cumnv'] = df['nv'].cumprod()
@@ -310,7 +309,18 @@ class Factorlens:
             self.layerrt_df_draw = self.layerrt_df.groupby(by=['time','layer'])\
                 .agg({'nv':'mean','trade_date':'min'}).reset_index()
         else:
-            self.layerrt_df_draw = self.layerrt_df        
+
+            self.layerrt_df_draw = self.layerrt_df
+        
+        trade_date_unique = pd.DataFrame({'trade_date':self.layerrt_df_draw.trade_date.unique()})
+        trade_date_unique['Cartesian'] = 1
+        layer_unique = pd.DataFrame({'layer':self.layerrt_df_draw.layer.unique()})
+        layer_unique['Cartesian'] = 1
+        full_points_draw = pd.merge(left=trade_date_unique,right=layer_unique,on='Cartesian',how='left')
+        self.layerrt_df_draw = pd.merge(left=full_points_draw,right=self.layerrt_df_draw,
+                                       on=['trade_date','layer'],how='left')
+        self.layerrt_df_draw['nv'] = self.layerrt_df_draw['nv'].fillna(1.0)
+
         self.layerrt_df_draw = self.layerrt_df_draw.groupby(by='layer').apply(cal_cumnv).reset_index(drop=True)
 
         
