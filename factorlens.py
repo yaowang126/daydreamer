@@ -27,7 +27,7 @@ class Factorlens:
             self.stock_pool = stock_pool
         else:
             self.stock_pool = factor_df['ts_code'].unique().tolist()
-            
+            print(len(self.stock_pool))
         self.stock_basic = selector.stock_basic(stock_pool=self.stock_pool)
         
         self.stock_delist = self.stock_basic[self.stock_basic['list_status'] =='D'][['ts_code','delist_date']]
@@ -38,16 +38,15 @@ class Factorlens:
         self.factor_name = factor_name
         #build for rt_df calculation
         self.factor_date_list = factor_df.factor_date.unique().tolist()
-        self.trade_cal = selector.trade_cal(start_date=20000000, 
-                                                 end_date=30000000)
- 
+        self.trade_cal = selector.trade_cal(start_date=0, 
+                                                 end_date=30000000).iloc[1:-2]
+        self.trade_cal[['pretrade_date','nexttrade_date']] = self.trade_cal[['pretrade_date','nexttrade_date']].astype(int)
         #此部分为用所有因子日的下一个交易日算出所有调仓日
 
         trade_date_df = pd.merge(left=pd.DataFrame({'factor_date':self.factor_date_list}),
                                  right=self.trade_cal,left_on='factor_date',
                                  right_on='cal_date',how='left')
         self.date_list = trade_date_df.nexttrade_date.unique().tolist()
-        
         #此为加上新股可被交易的日期
         if newlist_delay:
             def cal_newlist_startdate(newlist_date,newlist_delay):
