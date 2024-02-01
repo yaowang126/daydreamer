@@ -27,7 +27,6 @@ class Factorlens:
             self.stock_pool = stock_pool
         else:
             self.stock_pool = factor_df['ts_code'].unique().tolist()
-            print(len(self.stock_pool))
         self.stock_basic = selector.stock_basic(stock_pool=self.stock_pool)
         
         self.stock_delist = self.stock_basic[self.stock_basic['list_status'] =='D'][['ts_code','delist_date']]
