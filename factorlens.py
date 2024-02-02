@@ -7,6 +7,7 @@ Created on Fri Jun 30 09:29:42 2023
 import pandas as pd
 import numpy as np
 from .utils.selector import Selector
+from .fundevaluation import cal_max_percent_drawdown
 import matplotlib
 from matplotlib import pyplot as plt
 matplotlib.rcParams['font.sans-serif'] = ['SimHei']
@@ -293,53 +294,122 @@ class Factorlens:
                             ic,rankic = self._cal_ic(cal_df)
                             layerrt = self._cal_layerrt(cal_df,keep_null)
                             layerrt['trade_date'] = trade_date_next
-                            layerrt['time'] = query_date_point+adjust_point
+                            layerrt['time'] = query_date_point/self.continuousrotation + adjust_point
+                            layerrt['rotationpoint'] = rotation_point
                             self.metrics_df = pd.concat([self.metrics_df,pd.DataFrame({'time':[query_date_point+adjust_point],
                                                        'trade_date':[trade_date_next],'ic':[ic],'rankic':[rankic]})],ignore_index=True)
         
                             self.layerrt_df = pd.concat([self.layerrt_df,layerrt],ignore_index=True)
-
+        
+        selector.close()
+        return self.layerrt_df
+    
+    def stat(self):
+        
         def cal_cumnv(df):
-            df = df.sort_values(by='trade_date')
+            df = df.sort_values(by='time')
             df['cumnv'] = df['nv'].cumprod()
             return df
         
-        if self.continuousrotation:
-            self.layerrt_df_draw = self.layerrt_df.groupby(by=['time','layer'])\
-                .agg({'nv':'mean','trade_date':'min'}).reset_index()
-        else:
 
-            self.layerrt_df_draw = self.layerrt_df
         
-        trade_date_unique = pd.DataFrame({'trade_date':self.layerrt_df_draw.trade_date.unique()})
+        
+        
+        # if self.continuousrotation:
+        #     self.layerrt_df_draw = self.layerrt_df.groupby(by=['time','layer'])\
+        #         .agg({'nv':'mean','trade_date':'min'}).reset_index()
+        # else:
+        #     self.layerrt_df_draw = self.layerrt_df
+        
+        
+        #填充应该有的所有标准日期与层数
+        trade_date_unique = pd.DataFrame({'trade_date':self.layerrt_df.trade_date.unique()})
         trade_date_unique['Cartesian'] = 1
-        layer_unique = pd.DataFrame({'layer':self.layerrt_df_draw.layer.unique()})
+        layer_unique = pd.DataFrame({'layer':self.layerrt_df.layer.unique()})
         layer_unique['Cartesian'] = 1
-        full_points_draw = pd.merge(left=trade_date_unique,right=layer_unique,on='Cartesian',how='left')
-        self.layerrt_df_draw = pd.merge(left=full_points_draw,right=self.layerrt_df_draw,
+        full_points = pd.merge(left=trade_date_unique,right=layer_unique,on='Cartesian',how='left')
+        self.layerrt_df = pd.merge(left=full_points,right=self.layerrt_df,
                                        on=['trade_date','layer'],how='left')
-        self.layerrt_df_draw['nv'] = self.layerrt_df_draw['nv'].fillna(1.0)
+        self.layerrt_df['nv'] = self.layerrt_df['nv'].fillna(1.0) #如果那层没有数据就填充一个不赔不赚
+        
+        self.layerrt_df = self.layerrt_df.groupby(by=['rotationpoint','layer']).apply(cal_cumnv).reset_index(drop=True)
+        self.layerrt_df_draw= self.layerrt_df.groupby(by=['time','layer']).agg({'trade_date':'min',
+                                                                                'cumnv':'mean'}).reset_index()
+        
+        
+        #计算累计收益
+        # self.layerrt_df_draw = self.layerrt_df_draw.groupby(by='layer').apply(cal_cumnv).reset_index(drop=True)
+        
+        
+        
+        
+        
+        #计算首位两层多空收益率
+        ic_mean = round(self.metrics_df.ic.mean(),4)
+        if ic_mean > 0:
+            layermax = self.layerrt_df.layer.max()
+            layermin = self.layerrt_df.layer.min()
+        else:
+            layermax = self.layerrt_df.layer.min()
+            layermin = self.layerrt_df.layer.max()
+            
+        def cal_periodlongshort(df):
+            return pd.Series({'longshortrt':df[df['layer']==layermax].iloc[0].rt\
+                              -df[df['layer']==layermin].iloc[0].rt})
+        
+        self.longshortrt_df = self.layerrt_df.groupby(by=['time','trade_date','rotationpoint']).\
+            apply(cal_periodlongshort).reset_index()
+        self.longshortrt_df['nv'] = 1 + self.longshortrt_df['longshortrt']
+        
+        self.longshortnv = self.longshortrt_df.groupby(by='rotationpoint').apply(cal_cumnv).reset_index(drop=True)
+        
+        
+        self.ic_mean = round(self.metrics_df.ic.mean(),4)
+        self.icir = round(self.metrics_df.ic.mean()/self.metrics_df.ic.std(),4)
+        
+        self.rankic_mean = round(self.metrics_df.rankic.mean(),4)
+        self.rankicir = round(self.metrics_df.rankic.mean()/self.metrics_df.rankic.std(),4)
+        
+        
+        
+        
+        def cal_maxdrawdown(df):
+            return pd.Series({'maxdrawdown':cal_max_percent_drawdown(df.cumnv)})
+            
 
-        self.layerrt_df_draw = self.layerrt_df_draw.groupby(by='layer').apply(cal_cumnv).reset_index(drop=True)
+
+
+
 
         
-        selector.close()
+        self.maxdrawdown = self.longshortnv.groupby(by='rotationpoint').apply(cal_maxdrawdown)
+        self.maxdrawdown_mean = round(self.maxdrawdown.maxdrawdown.mean(),4)
+        
+        self.winrate = round(sum(self.longshortrt_df.longshortrt>0)/len(self.longshortrt_df),4)
+        
+        
+        
         return self.metrics_df,self.layerrt_df
         
     def draw(self,path=None):
         # return self.layerrt_df
         figure = plt.figure(figsize=(10,10))
-        axes1 = plt.subplot(3,1,1)
-        axes2 = plt.subplot(3,1,2)
-        axes3 = plt.subplot(3,1,3)
+        axes1 = plt.subplot(4,1,1)
+        axes2 = plt.subplot(4,1,2)
+        axes3 = plt.subplot(4,1,3)
+        table = plt.subplot(4,1,4)
         axes1.bar(self.metrics_df.trade_date.astype(int).astype(str),self.metrics_df.ic)
         axes1.set_xticklabels(self.metrics_df.trade_date.astype(int).astype(str),rotation=45,size=5)
-        ic_mean = round(self.metrics_df.ic.mean(),4)
-        ir = round(self.metrics_df.ic.mean()/self.metrics_df.ic.std(),4)
-        axes1.set_title(f'ic={ic_mean},ir={ir}')
+
+        axes1.set_title(f'ic={self.ic_mean},ir={self.icir}')
+        
+        
+        
         axes2.bar(self.metrics_df.trade_date.astype(int).astype(str),self.metrics_df.rankic)
         axes2.set_xticklabels(self.metrics_df.trade_date.astype(int).astype(str),rotation=45,size=5)
-        axes2.set_title(f'rankic={round(self.metrics_df.rankic.mean(),4)}')
+        rankic_mean = round(self.metrics_df.rankic.mean(),4)
+        rankicir = round(self.metrics_df.rankic.mean()/self.metrics_df.rankic.std(),4)
+        axes2.set_title(f'rankic={self.rankic_mean},rankicir={self.rankicir}')
         
         figure.subplots_adjust(hspace=0.5)
         
@@ -348,6 +418,23 @@ class Factorlens:
                         self.layerrt_df_draw[self.layerrt_df_draw['layer']==group_num]['cumnv'],label=f'group_{group_num}')
         axes3.set_xticklabels(self.layerrt_df_draw.trade_date.unique().astype(int).astype(str),rotation=45,size=5)
         axes3.legend(loc=2,prop = {'size':5})
+        
+        data = {'ic': [self.ic_mean], 
+                'ir': [self.icir],
+                'rankic':[self.rankic_mean],
+                'rankicir':[self.rankicir],
+                '月度胜率':[self.winrate],
+                '最大回撤均值':[self.maxdrawdown_mean]}
+        
+
+        table = plt.table(cellText=np.array(list(data.values())).T, 
+                          colLabels=list(data.keys()), loc='center')
+        table.auto_set_font_size(False)
+        table.set_fontsize(10)
+        table.scale(1, 1.5)
+        plt.axis('off')  # 关闭坐标轴
+        # plt.title('', fontsize=12)
+        
         
         plt.title(f'Factor:{self.factor_name}')
         if not path:
