@@ -5,6 +5,7 @@ Created on Fri Jul 28 10:59:30 2023
 @author: YW
 """
 from .utils.selector import Selector
+from .utils.sql import SQL
 from .fundevaluation import cal_annrt,cal_ann_excessrt,\
     cal_max_percent_drawdown,cal_sharp,cal_sortino
 import pandas as pd
@@ -374,20 +375,34 @@ class Context(ABC):
         self.selector.close()
         
         
-    def draw(self,title=None,path=None,compindex=None):
+    def draw(self,title=None,path=None,compindex=None,compindextype=None):
         datelist=[int(date) for date,nevtalue in self.netvaluerecorder.items()]
         dateliststr=[str(date) for date in datelist]
         netvaluelist=[nevtalue/self.startcash for date,nevtalue in self.netvaluerecorder.items()]
         
         
-        self.selector = Selector()
+        
         grid = plt.GridSpec(3, 3, wspace=0.5, hspace=0.5)
         axes1 = plt.subplot(grid[0:2,0:3])
         axes1.plot(dateliststr,netvaluelist,label='netvalue')
         if compindex:
-            index_daily = self.selector.index_daily(date_list=self.tradedate_list,stock_pool=[compindex])
-            index_daily = index_daily.sort_values(by='trade_date')
-            axes1.plot(dateliststr,index_daily.close/index_daily.close[0],label=compindex)
+            if compindextype == 'public':
+                self.selector = Selector()
+                index_daily = self.selector.index_daily(date_list=self.tradedate_list,stock_pool=[compindex])
+                self.selector.close()
+            elif compindextype == 'homemade':
+                self.sql = SQL('192.168.10.2',3306,'waralternative_dev','dongyuandev','waralternative')
+                index_query = f'''
+                select trade_date,close from index_daily_homemade 
+                where trade_date in (
+                    {','.join(["'"+str(tradedate)+"'" for tradedate in self.tradedate_list])}
+                    )
+                and ts_code = '{compindex}';
+                '''
+                index_daily = self.sql.select(index_query)
+                self.sql.close()
+        index_daily = index_daily.sort_values(by='trade_date')
+        axes1.plot(dateliststr,index_daily.close/index_daily.close[0],label=compindex)
             
         axes1.set_xticklabels([date if i%20==0 else '' for i,date in enumerate(dateliststr)],rotation=45,size=5)
         axes1.legend(loc=2,prop = {'size':5})
@@ -415,7 +430,6 @@ class Context(ABC):
             path = './Backtest.png'
         plt.savefig(path,dpi=300)
         
-        self.selector.close()
         return datelist,netvaluelist
     
 
