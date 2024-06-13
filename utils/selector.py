@@ -70,6 +70,7 @@ class Selector:
             
     
     def _querydaily_year_split(self,table_name,start_date=None,end_date=None,date_list=None,stock_pool=None):
+        print(start_date,type(start_date),end_date,type(end_date))
         assert isinstance(start_date,int) and isinstance(end_date,int) \
             or isinstance(date_list,Iterable),'起始日期和截止日期必须传入或者转入日期列表'
             

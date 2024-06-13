@@ -401,12 +401,12 @@ class Context(ABC):
                 '''
                 index_daily = self.sql.select(index_query)
                 self.sql.close()
-        index_daily = index_daily.sort_values(by='trade_date')
-        axes1.plot(dateliststr,index_daily.close/index_daily.close[0],label=compindex)
+            index_daily = index_daily.sort_values(by='trade_date')
+            axes1.plot(dateliststr,index_daily.close/index_daily.close[0],label=compindex)
+                
+            axes1.set_xticklabels([date if i%20==0 else '' for i,date in enumerate(dateliststr)],rotation=45,size=5)
+            axes1.legend(loc=2,prop = {'size':5})
             
-        axes1.set_xticklabels([date if i%20==0 else '' for i,date in enumerate(dateliststr)],rotation=45,size=5)
-        axes1.legend(loc=2,prop = {'size':5})
-        
             
         axes2 = plt.subplot(grid[2,0:3])
         axes2.axis('off')

@@ -98,7 +98,7 @@ class Factorlens:
             index_1 = trade_cal_open[trade_cal_open['nexttrade_date']==self.date_list[-2]].index
             index_0 = trade_cal_open[trade_cal_open['nexttrade_date']==self.date_list[-1]].index
             last_date = trade_cal_open.loc[2*index_0-index_1,'nexttrade_date'].iloc[0]
-            self.date_list.append(last_date)
+            self.date_list.append(int(last_date))
         
         #此为给factor_df添加一列调仓日
         self.factor_df = pd.merge(left=factor_df,right=trade_date_df.loc[:,['factor_date','nexttrade_date']],
@@ -385,9 +385,9 @@ class Factorlens:
             date_list_len = int(len(self.date_list)/self.continuousrotation)*self.continuousrotation
             date_list_int = self.date_list[:date_list_len]
             for query_date_point in range(0,len(date_list_int)-self.continuousrotation,step_size*self.continuousrotation):
-                
                 date_list = date_list_int[query_date_point:query_date_point+(step_size+1)*self.continuousrotation]
                 #以下为mysql to memory读取流
+                print([type(item) for item in date_list])
                 self.daily_df = selector.daily(start_date=date_list[0],end_date=date_list[-1],stock_pool=self.stock_pool)
                 self.adj_factor_df = selector.adj_factor(start_date=date_list[0],end_date=date_list[-1],stock_pool=self.stock_pool)
                 self.stk_limit_df = selector.stk_limit(start_date=date_list[0],end_date=date_list[-1],stock_pool=self.stock_pool)
@@ -397,6 +397,7 @@ class Factorlens:
                 #以下为每个调仓日分层并结算下一期收益and计算憋手里等等琐事
                 for rotation_point in range(self.continuousrotation):
                     date_list_rotation = [date for i,date in enumerate(date_list) if i%self.continuousrotation == rotation_point]
+                    print(date_list_rotation)
                     for adjust_point in range(len(date_list_rotation)-1):   
                         trade_date = date_list_rotation[adjust_point]
                         trade_date_next = date_list_rotation[adjust_point+1]
@@ -522,8 +523,8 @@ class Factorlens:
         def cal_maxdrawdown(df):
             return pd.Series({'maxdrawdown':cal_max_percent_drawdown(df.cumnv)})
         
-        self.maxdrawdown = self.longshort_daily_nv.groupby(by='rotationpoint').apply(cal_maxdrawdown)
-        self.maxdrawdown_mean = round(self.maxdrawdown.maxdrawdown.mean(),4)
+        maxdrawdown = self.longshort_daily_nv.groupby(by='rotationpoint').apply(cal_maxdrawdown)
+        self.maxdrawdown = round(maxdrawdown.maxdrawdown.mean(),4)
                 
         
         #月度胜率
@@ -545,6 +546,10 @@ class Factorlens:
         sharp = self.longshort_daily_nv.groupby(by='rotationpoint').apply(calc_sharp)
         self.sharp = sharp.sharp.mean()
         
+        return {'ic':self.ic_mean,'icir':self.icir,
+                'rankic':self.rankic_mean,'rankicir':self.rankicir,
+                'winrate':self.winrate,'annrt':self.annrt,
+                'sharp':self.sharp,'maxdrawdown':self.maxdrawdown}
     
     def draw(self,path=None):
         # return self.layerrt_df
@@ -594,10 +599,10 @@ class Factorlens:
                 'ir': [round(self.icir,4)],
                 'rankic':[round(self.rankic_mean,4)],
                 'rankicir':[round(self.rankicir,4)],
-                '月度胜率':[round(self.winrate,2)],
+                '多空胜率':[round(self.winrate,2)],
                 '多空年化收益':[round(self.annrt,2)],
                 '多空夏普比率':[round(self.sharp,2)],
-                '最大回撤均值':[round(self.maxdrawdown_mean,2)]}
+                '最大回撤均值':[round(self.maxdrawdown,2)]}
         
 
         table = plt.table(cellText=np.array(list(data.values())).T, 
