@@ -31,10 +31,8 @@ class Factorlens:
         self.stock_basic = selector.stock_basic(stock_pool=self.stock_pool)
         
         self.stock_delist = self.stock_basic[self.stock_basic['list_status'] =='D'][['ts_code','delist_date']]
-        factor_df = factor_df.reset_index(drop=True)
         factor_df = factor_df.sort_values(by='factor_date')
         factor_df = factor_df.reset_index(drop=True)
-        factor_df = factor_df.sort_values(by='factor_date')
         self.factor_name = factor_name
         #build for rt_df calculation
         self.factor_date_list = factor_df.factor_date.unique().tolist()
@@ -116,7 +114,7 @@ class Factorlens:
             self.passivehold = pd.DataFrame(columns=['ts_code','buy_price','adj_factor',
                                                      'layer','ratio'])
         if self.continuousrotation:
-            self.passivehold_daily = [pd.DataFrame(columns=['ts_code','last_trade_date','layer',
+            self.passivehold_priceinfo = [pd.DataFrame(columns=['ts_code','last_trade_date','layer',
                                                             'last_price','last_adj_factor'])\
                                       for i in range(self.continuousrotation)]
         else:
@@ -127,7 +125,11 @@ class Factorlens:
         self.layerrt_df = pd.DataFrame(columns=['time','trade_date','layer','rt','nv'])
         self.layer_daily_nv_df = pd.DataFrame(columns=['trade_date','layer','nv','rotationpoint'])
         selector.close()     
-    
+        '''
+        check
+        '''
+        self.layer_stock_df_cum1 = pd.DataFrame()
+        self.layer_stock_df_cum2 = pd.DataFrame()
     
     def _cal_layer_buydf(self,trade_date,cal_layer_func,layer_num,trade_method,rotation_point=None):
         buy_df = self.daily_df.loc[trade_date,['ts_code','close','low','vol','amount']]
@@ -151,7 +153,6 @@ class Factorlens:
         namechange_df = self.namechange.query(f'{trade_date}>=start_date & {trade_date}<=end_date')[['ts_code','stock_name']]
         self.namechangesee1 = self.namechange
         self.namechangesee2 = namechange_df
-        self.buy_dfsee = buy_df
         buy_df = pd.merge(left=buy_df,right=namechange_df,on='ts_code',how='left')
         
         buy_dfsee = buy_df[pd.isnull(buy_df['stock_name'])]
@@ -183,6 +184,8 @@ class Factorlens:
             buy_df = buy_df[buy_df['close']!=buy_df['up_limit']]#踢出收盘价=涨停价
             buy_df['buy_price'] = buy_df['close']
         #以下为加入憋手里的部分，并且为每个票附上持仓比例(憋手里的可能和这期新来的平均分的数值不一样)
+           
+        
         if self.continuousrotation:
             buy_df = pd.concat([buy_df,self.passivehold[rotation_point]],join='outer',ignore_index=True)
         else:
@@ -242,7 +245,7 @@ class Factorlens:
         stock_df = stock_df.dropna()
         if len(stock_df)>0:
             stock_df = stock_df.sort_values(by='trade_date').reset_index(drop=True)
-            last_price = stock_df.iloc[-1].amount / stock_df.iloc[-1].vol * 10
+            last_price = stock_df.iloc[-1].price
             last_adj_factor = stock_df.iloc[-1].adj_factor
             last_trade_date = stock_df.iloc[-1].trade_date
             return pd.Series({'last_trade_date':last_trade_date,
@@ -253,7 +256,6 @@ class Factorlens:
                               'last_price':None,
                               'last_adj_factor':None})
         
-    
     @staticmethod
     def _ffill_nacols(stock_df):
         stock_df = stock_df.sort_values(by='trade_date').reset_index(drop=True)
@@ -264,7 +266,7 @@ class Factorlens:
     
     @staticmethod
     def _calc_stock_cumnv(stock_df,trade_date,trade_date_next):
-        stock_df['nv'] = stock_df['price']*stock_df['adj_factor']/(stock_df['price'].shift(1)*stock_df['adj_factor'].shift(1))
+        
         stock_df = stock_df.sort_values(by='trade_date').reset_index(drop=True)
         stock_df['price'] = stock_df['price'].ffill()
         stock_df['adj_factor'] = stock_df['adj_factor'].ffill()
@@ -277,12 +279,30 @@ class Factorlens:
         return stock_df
     
     
-    def _calc_layer_dailynv(self,layer_stock_df,trade_date,trade_date_next):
+    def _calc_layer_dailynv(self,layer_stock_df,trade_date,trade_date_next,rotation_point):
+        
+        layer_stock_df_copy = layer_stock_df
+        self.layer_stock_df_cum1 = pd.concat([self.layer_stock_df_cum1,layer_stock_df_copy])
+        
+        
+        
         layer_stock_df = layer_stock_df.groupby(by='ts_code').apply(lambda x:self._calc_stock_cumnv(x,trade_date,trade_date_next))
+        
+        '''
+        check rotation_point没用
+        '''
+        layer_stock_df_copy = layer_stock_df
+        layer_stock_df_copy['rotation_point'] = rotation_point
+        self.layer_stock_df_cum2 = pd.concat([self.layer_stock_df_cum2,layer_stock_df_copy])
+        '''
+        '''
+        
+        
         layer_df = layer_stock_df.groupby('trade_date').agg({'ratio_cumnv':'sum'}).reset_index()\
             .rename(columns={'ratio_cumnv':'cumnv'})
         layer_df['nv'] = layer_df['cumnv']/layer_df['cumnv'].shift(1)
-        layer_df = layer_df.iloc[1:]
+        layer_df = layer_df.iloc[1:]#第一期的最后一天和第二期的第一天会是同一天，也就是说被重复计算
+        #而每一期的第一天cum_nv是1，所以把每一期的第一天删掉
         return layer_df
     
     
@@ -295,7 +315,9 @@ class Factorlens:
             trade_date_unique = pd.DataFrame({'trade_date':rt_df.trade_date.unique()})#这里默认至少没有一天所有待测票池票都停牌
             trade_date_unique['Cartesian'] = 1
             
-            hold_df = self.buy_df[['ts_code','layer','ratio']].groupby(['ts_code','layer']).agg({'ratio':'sum'}).reset_index()
+            
+            hold_df = self.buy_df[['ts_code','layer','ratio']].groupby(['ts_code','layer'])\
+                .agg({'ratio':'sum'}).reset_index()
             stock_layer_unique = hold_df[['ts_code','layer','ratio']].drop_duplicates()
             stock_layer_unique['Cartesian'] = 1
             full_points = pd.merge(left=trade_date_unique,right=stock_layer_unique,on='Cartesian',how='left')
@@ -305,40 +327,73 @@ class Factorlens:
             rt_df['price'] = rt_df['amount']/rt_df['vol']*10
 
             if self.continuousrotation:
+                
+                #用self.passivehold_priceinfo中最的last_price填充进rt_df中来自passive_hold部分的price空的部分
+                rt_df = pd.merge(left=rt_df,right=self.passivehold_priceinfo[rotation_point]\
+                                 [['ts_code','last_price','last_adj_factor']],
+                                 how='left',on='ts_code')
+                rt_df['price'] = rt_df.apply(lambda x:x.price if pd.notnull(x.price)\
+                                             else x.last_price,axis=1)   
+                rt_df['adj_factor'] = rt_df.apply(lambda x:x.adj_factor if pd.notnull(x.adj_factor)\
+                                             else x.last_adj_factor,axis=1) 
+                rt_df = rt_df.drop(columns=['last_price','last_adj_factor'])    
+                stock_price_df = rt_df[['ts_code','trade_date','price','adj_factor']]\
+                    .drop_duplicates(subset=['ts_code','trade_date'])
+                #更新存储pasivehold_daily为本期Passivehold票的最后一个价格
 
-                rt_df = pd.concat([rt_df,self.passivehold_daily[rotation_point][['ts_code','layer','last_trade_date',
-                                    'last_price','last_adj_factor']].\
-                                  rename(columns={'last_trade_date':'trade_date',
-                                                  'last_price':'price',
-                                                  'last_adj_factor':'adj_factor'})],ignore_index=True)
+                #因为rt_df里一个ts_code可能多个Layer都有，制作一个一个ts_code只有一个的df用来计算最后一个有交易的日期的价格
+                last_date = stock_price_df.groupby(by='ts_code')\
+                    .apply(self._calc_stock_layer_lastprice).reset_index()
                 
-                #更新存储pasivehold_daily为本期Passivehold票的最后一个价格
                 
-                last_date = rt_df.groupby(by=['ts_code','layer']).apply(self._calc_stock_layer_lastprice)#.reset_index()
-                last_date_passivehold = pd.merge(left=self.passivehold[rotation_point][['ts_code','layer']],
+                last_date_passivehold = pd.merge(left=self.passivehold[rotation_point]\
+                         .drop_duplicates(subset=['ts_code'])[['ts_code']],
                                                  right=last_date,how='left',on='ts_code')
-                self.passivehold_daily[rotation_point] = last_date_passivehold
+                self.passivehold_priceinfo[rotation_point] = last_date_passivehold
+
+            
+            
+            
+            
+            
             else:
-                rt_df = pd.concat([rt_df,self.passivehold_daily[['ts_code','last_date',
-                                    'last_price','last_adj_factor']].\
-                                  rename(columns={'last_date':'trade_date',
-                                                  'last_price':'price',
-                                                  'last_adj_factor':'adj_factor'})],ignore_index=True)
-                
+                #用self.passivehold_priceinfo中最的last_price填充进rt_df中来自passive_hold部分的price空的部分
+                rt_df = pd.merge(left=rt_df,right=self.passivehold_priceinfo\
+                                 [['ts_code','last_price','last_adj_factor']],
+                                 how='left',on='ts_code')
+                rt_df['price'] = rt_df.apply(lambda x:x.price if pd.notnull(x.price)\
+                                             else x.last_price,axis=1)   
+                rt_df['adj_factor'] = rt_df.apply(lambda x:x.adj_factor if pd.notnull(x.adj_factor)\
+                                             else x.last_adj_factor,axis=1) 
+                rt_df = rt_df.drop(columns=['last_price','last_adj_factor'])    
+                stock_price_df = rt_df[['ts_code','trade_date','price','adj_factor']]\
+                    .drop_duplicates(subset=['ts_code','trade_date'])
                 #更新存储pasivehold_daily为本期Passivehold票的最后一个价格
-                last_date = rt_df.groupby(by=['ts_code','layer']).apply(self._calc_stock_layer_lastprice).reset_index()
-                last_date_passivehold = pd.merge(left=self.passivehold[['ts_code','layer']],
+
+                #因为rt_df里一个ts_code可能多个Layer都有，制作一个一个ts_code只有一个的df用来计算最后一个有交易的日期的价格
+                last_date = stock_price_df.groupby(by='ts_code')\
+                    .apply(self._calc_stock_layer_lastprice).reset_index()
+                
+                
+                last_date_passivehold = pd.merge(left=self.passivehold\
+                         .drop_duplicates(subset=['ts_code'])[['ts_code']],
                                                  right=last_date,how='left',on='ts_code')
-                self.passivehold_daily = last_date_passivehold
+                self.passivehold_priceinfo = last_date_passivehold
                   
+            
+            
             #计算每层每日的收益(nv)
             #没有daily行情的也没Layer/ratio，需要向下填充
-
+            
+            
+            
             rt_df = rt_df.groupby(by=['ts_code','layer']).apply(self._ffill_nacols).reset_index(drop=True)
-            layer_nv_df = rt_df.groupby(by=['layer']).apply(lambda x:self._calc_layer_dailynv(x,trade_date,trade_date_next))\
+            layer_nv_df = rt_df.groupby(by=['layer']).apply(lambda x:\
+                self._calc_layer_dailynv(x,trade_date,trade_date_next,rotation_point))\
                 .reset_index()[['layer','trade_date','cumnv','nv']]
-           
-            return layer_nv_df
+            
+        
+        return layer_nv_df
                     
             
         
@@ -387,7 +442,6 @@ class Factorlens:
             for query_date_point in range(0,len(date_list_int)-self.continuousrotation,step_size*self.continuousrotation):
                 date_list = date_list_int[query_date_point:query_date_point+(step_size+1)*self.continuousrotation]
                 #以下为mysql to memory读取流
-                print([type(item) for item in date_list])
                 self.daily_df = selector.daily(start_date=date_list[0],end_date=date_list[-1],stock_pool=self.stock_pool)
                 self.adj_factor_df = selector.adj_factor(start_date=date_list[0],end_date=date_list[-1],stock_pool=self.stock_pool)
                 self.stk_limit_df = selector.stk_limit(start_date=date_list[0],end_date=date_list[-1],stock_pool=self.stock_pool)
@@ -397,7 +451,6 @@ class Factorlens:
                 #以下为每个调仓日分层并结算下一期收益and计算憋手里等等琐事
                 for rotation_point in range(self.continuousrotation):
                     date_list_rotation = [date for i,date in enumerate(date_list) if i%self.continuousrotation == rotation_point]
-                    print(date_list_rotation)
                     for adjust_point in range(len(date_list_rotation)-1):   
                         trade_date = date_list_rotation[adjust_point]
                         trade_date_next = date_list_rotation[adjust_point+1]
@@ -411,7 +464,9 @@ class Factorlens:
                             #在这累加layer_daily_rt_df
                             layer_daily_nv = self._calc_layernv_lastprice_daily(trade_date,trade_date_next,trade_method,rotation_point) #改成开关模式
                             layer_daily_nv['rotationpoint'] = rotation_point
-                            self.layer_daily_nv_df = pd.concat([self.layer_daily_nv_df,layer_daily_nv[['trade_date','layer','nv','rotationpoint']]],ignore_index=True)
+                            self.layer_daily_nv_df = pd.concat([self.layer_daily_nv_df,
+                                                                layer_daily_nv[['trade_date','layer','nv','rotationpoint']]],
+                                                               ignore_index=True)
                             ic,rankic = self._cal_ic(cal_df)
                             layerrt = self._cal_layerrt(cal_df,keep_null)
                             layerrt['trade_date'] = trade_date_next

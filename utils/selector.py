@@ -36,11 +36,14 @@ class Selector:
             with open(f'{os.path.dirname(__file__)}/dbcfg.conf', 'r', encoding='utf-8') as f:
                 dbcfg = json.load(f)
                 tushare_cfg = dbcfg['tushare']
-                tushare_warmin_cfg = dbcfg['tushare_warmin']
+                # tushare_warmin_cfg = dbcfg['tushare_warmin']
+                tushare_1min_cfg = dbcfg['tushare_1min']
             self.sql = SQL(tushare_cfg['DBaddr'],int(tushare_cfg['DBport']),tushare_cfg['DBusername'],
                            tushare_cfg['DBpw'],tushare_cfg['DBname'])
-            self.sqlwarmin = SQL(tushare_warmin_cfg['DBaddr'],int(tushare_warmin_cfg['DBport']),tushare_warmin_cfg['DBusername'],
-                           tushare_warmin_cfg['DBpw'],tushare_warmin_cfg['DBname'])
+            # self.sqlwarmin = SQL(tushare_warmin_cfg['DBaddr'],int(tushare_warmin_cfg['DBport']),tushare_warmin_cfg['DBusername'],
+            #                tushare_warmin_cfg['DBpw'],tushare_warmin_cfg['DBname'])
+            self.sql1min = SQL(tushare_1min_cfg['DBaddr'],int(tushare_1min_cfg['DBport']),tushare_1min_cfg['DBusername'],
+                           tushare_1min_cfg['DBpw'],tushare_1min_cfg['DBname'])
         else:
             ...
     
@@ -70,7 +73,6 @@ class Selector:
             
     
     def _querydaily_year_split(self,table_name,start_date=None,end_date=None,date_list=None,stock_pool=None):
-        print(start_date,type(start_date),end_date,type(end_date))
         assert isinstance(start_date,int) and isinstance(end_date,int) \
             or isinstance(date_list,Iterable),'起始日期和截止日期必须传入或者转入日期列表'
             
@@ -85,7 +87,7 @@ class Selector:
                 if isinstance(stock_pool,Iterable):
                     stock_pool_str = "("+ ",".join(["'"+item+"'" for item in stock_pool]) +")"
                     query_select += f''' and ts_code in {stock_pool_str}'''
-                query_select += ';'
+                query_select += 'order by trade_date;'
                 df = self.sql.select(query_select)
                 df_cum = pd.concat([df_cum,df], ignore_index=True, join='outer')
         
@@ -104,12 +106,13 @@ class Selector:
                     for ts_code in stock_pool:
                         for trade_date in date_list:
                             query_select += f"('{ts_code}',{trade_date}),"
-                    query_select = query_select[:-1] + ');'
+                    query_select = query_select[:-1] + ')'
                 else:
                      query_select = f'''
-                    select * from {table_name}_{year} where trade_date in ({",".join([str(item) for item in date_list])})
+                    select * from {table_name}_{year} where trade_date in 
+                    ({",".join([str(item) for item in date_list])})
                     '''
-
+                query_select += 'order by trade_date;'
                 df = self.sql.select(query_select)
                 df_cum = pd.concat([df_cum,df], ignore_index=True, join='outer')
                     
@@ -127,7 +130,7 @@ class Selector:
             if isinstance(stock_pool,Iterable):
                 stock_pool_str = "("+ ",".join(["'"+item+"'" for item in stock_pool]) +")"
                 query_select += f''' and ts_code in {stock_pool_str}'''
-            query_select += ';'
+            query_select += 'order by trade_date ;'
             df_cum = self.sql.select(query_select)
         
         elif isinstance(date_list,Iterable):
@@ -145,6 +148,7 @@ class Selector:
                  query_select = f'''
                 select * from {table_name} where trade_date in ({",".join([str(item) for item in date_list])})
                 '''
+            query_select += 'order by trade_date;'
             df_cum = self.sql.select(query_select)
                     
         return df_cum.sort_values(by='trade_date').reset_index(drop=True)    
@@ -194,22 +198,23 @@ class Selector:
         df = self.sql.select(query)
         return df
     
-    def warmin(self,start_date=None,end_date=None,date_list=None):
-        assert isinstance(start_date,int) and isinstance(end_date,int) \
-    or isinstance(date_list,Iterable),'起始日期和截止日期必须传入或者转入日期列表'
-        if isinstance(start_date,int) and isinstance(end_date,int):
-            df_tables = self.trade_cal(20000000,30000000)
-            df_tables = df_tables[df_tables['is_open']==1]
-            date_list = df_tables[(df_tables['cal_date']>=start_date)&(df_tables['cal_date']<=end_date)].cal_date.to_list()
-        df_cum = pd.DataFrame()
+    # 开始取全部的分钟数据,warmin不再使用
+    # def warmin(self,start_date=None,end_date=None,date_list=None):
+    #     assert isinstance(start_date,int) and isinstance(end_date,int) \
+    # or isinstance(date_list,Iterable),'起始日期和截止日期必须传入或者转入日期列表'
+    #     if isinstance(start_date,int) and isinstance(end_date,int):
+    #         df_tables = self.trade_cal(20000000,30000000)
+    #         df_tables = df_tables[df_tables['is_open']==1]
+    #         date_list = df_tables[(df_tables['cal_date']>=start_date)&(df_tables['cal_date']<=end_date)].cal_date.to_list()
+    #     df_cum = pd.DataFrame()
         
-        for tradedate in date_list:
-            query_select = f'''
-            select * from war_{tradedate}
-            '''
-            df = self.sqlwarmin.select(query_select)
-            df_cum = pd.concat([df_cum,df], ignore_index=True, join='outer')
-        return df_cum
+    #     for tradedate in date_list:
+    #         query_select = f'''
+    #         select * from war_{tradedate}
+    #         '''
+    #         df = self.sqlwarmin.select(query_select)
+    #         df_cum = pd.concat([df_cum,df], ignore_index=True, join='outer')
+    #     return df_cum
     
     def stock_basic(self,stock_pool=None):
         query_select = '''
@@ -273,7 +278,20 @@ class Selector:
         df = self.sql.select(query_select)
         return df
     
-
+    def min1(self,trade_date,stock_pool=None):
+        query = f'''
+        select * from min1_{trade_date}
+        '''
+        
+        if isinstance(stock_pool,Iterable):
+            stock_pool_str = "("+ ",".join(["'"+item+"'" for item in stock_pool]) +")"
+            query += f'''
+            where ts_code in {stock_pool_str}
+            ''' 
+        df = self.sql1min.select(query)
+        return df
+        
+        
     
     def __getattr__(self,table_name):
         if table_name in ('daily','dailybasic','adj_factor','moneyflow','stk_limit'):
@@ -286,4 +304,5 @@ class Selector:
 
     def close(self):
         self.sql.close()
-        self.sqlwarmin.close()
+        # self.sqlwarmin.close()
+        self.sql1min.close()

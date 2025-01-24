@@ -43,7 +43,6 @@ def cal_sharp(netvaluelist,rf_rate=0.025):
     sharp = (ann_rt - rf_rate)/ann_std
     return sharp
 
-
 def cal_sortino(netvaluelist,rf_rate=0.025):
     df = pd.DataFrame({'net':netvaluelist})
     df['rt'] = df['net']/df['net'].shift(1)-1
@@ -52,3 +51,17 @@ def cal_sortino(netvaluelist,rf_rate=0.025):
     ann_std = negrt.std() * (250**(1/2))
     sortino = (ann_rt - rf_rate)/ann_std
     return sortino
+
+def cal_excessrt_curve(netvaluelist,indexvaluelist):
+    netvalue = [item/netvaluelist[0] for item in netvaluelist]
+    indexvalue = [item/indexvaluelist[0] for item in indexvaluelist]
+    df = pd.DataFrame({'netvalue':netvalue,'indexvalue':indexvalue})
+    df['netvaluedate'] = df['netvalue']/df['netvalue'].shift(1).fillna(1)
+    df['indexvaluedate'] = df['indexvalue']/df['indexvalue'].shift(1).fillna(1)
+    df['excessdate'] = df['netvaluedate']/df['indexvaluedate']
+    df['excesscurve'] = df['excessdate'].cumprod()
+    return df['excesscurve'].tolist()
+    
+    
+    
+    
